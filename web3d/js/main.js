@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentPropagator: 'HYBRID_ML',
         attitudeMode: 'NADIR',
         isPlaying: true,
-        warpMultiplier: 1.0,
+        warpMultiplier: 60.0,
         simTimeSec: 0.0,
         showHud: true,
         layerVisibility: {
@@ -276,8 +276,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Update RIC Residual Charts
-            if (data.predicted_ric_residuals) {
-                charts.updateRicChart(data.times_s, data.predicted_ric_residuals);
+            if (charts) {
+                charts.resetRicStreaming();
+                if (data.predicted_ric_residuals) {
+                    charts.updateRicChart(data.times_s, data.predicted_ric_residuals);
+                }
             }
 
             if (loadingIndicator) loadingIndicator.innerHTML = '<span class="live-pulse"></span> TELEMETRY LIVE';
@@ -341,6 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 6. Real-time Continuous Astrodynamics Clock & Telemetry Tick
     let lastWallTime = performance.now();
+    let liveRicTickCounter = 0;
 
     function tick() {
         const now = performance.now();
@@ -514,9 +518,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const dz_sgp4 = r_sgp4[2] - r_truth[2];
             const err_sgp4_m = Math.sqrt(dx_sgp4 * dx_sgp4 + dy_sgp4 * dy_sgp4 + dz_sgp4 * dz_sgp4);
 
-            const dx_model = r_eci[0] - r_truth[0];
-            const dy_model = r_eci[1] - r_truth[1];
-            const dz_model = r_eci[2] - r_truth[2];
+            let r_model = r_eci;
+            if (traj.model_orbit_eci && traj.model_orbit_eci.length > k0 && state.currentPropagator === 'SGP4') {
+                const m0 = traj.model_orbit_eci[k0];
+                const m1 = traj.model_orbit_eci[Math.min(k1, traj.model_orbit_eci.length - 1)];
+                r_model = [
+                    (1 - alpha) * m0[0] + alpha * m1[0],
+                    (1 - alpha) * m0[1] + alpha * m1[1],
+                    (1 - alpha) * m0[2] + alpha * m1[2],
+                ];
+            }
+
+            const dx_model = r_model[0] - r_truth[0];
+            const dy_model = r_model[1] - r_truth[1];
+            const dz_model = r_model[2] - r_truth[2];
             const err_model_m = Math.sqrt(dx_model * dx_model + dy_model * dy_model + dz_model * dz_model);
 
             let reductionPct = 0;
@@ -540,6 +555,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (elHeroRicDr) elHeroRicDr.textContent = `${ric_r >= 0 ? '+' : ''}${ric_r.toFixed(1)} m`;
             if (elHeroRicDi) elHeroRicDi.textContent = `${ric_i >= 0 ? '+' : ''}${ric_i.toFixed(1)} m`;
             if (elHeroRicDc) elHeroRicDc.textContent = `${ric_c >= 0 ? '+' : ''}${ric_c.toFixed(1)} m`;
+
+            // Dynamically stream live RIC waveform into chart in real-time (~5Hz)
+            if (state.isPlaying && (liveRicTickCounter++ % 6 === 0) && charts) {
+                const curTMinStr = (tMod / 60.0).toFixed(1) + 'm';
+                charts.pushLiveRicSample(curTMinStr, ric_r, ric_i, ric_c);
+            }
 
             // Update 3D Floating HUD
             if (state.showHud && satHudEl && scene.satGroup) {

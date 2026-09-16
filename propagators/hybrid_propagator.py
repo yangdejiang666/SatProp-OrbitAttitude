@@ -134,6 +134,24 @@ class HybridOrbitPropagator(BasePropagator):
                 lat, lon, alt = ecef_to_geodetic(r_ecef)
                 geodetic[i] = [lat, lon, alt]
 
+        # Smoothly back-fill warm-up phase (first seq_length steps) with initial predicted trend
+        if n_points > self.seq_length and np.any(predicted_ric_residuals[self.seq_length]):
+            first_ric = predicted_ric_residuals[self.seq_length]
+            for i in range(self.seq_length):
+                factor = (i + 1) / float(self.seq_length)
+                ric_fill = first_ric * factor
+                predicted_ric_residuals[i] = ric_fill
+                M_ric = eci_to_ric_matrix(sgp4_eci[i, 0:3], sgp4_eci[i, 3:6])
+                dr_eci = M_ric.T @ ric_fill[0:3]
+                dv_eci = M_ric.T @ ric_fill[3:6]
+                states_eci[i, 0:3] = sgp4_eci[i, 0:3] + dr_eci
+                states_eci[i, 3:6] = sgp4_eci[i, 3:6] + dv_eci
+                r_ecef, v_ecef = eci_to_ecef(states_eci[i, 0:3], states_eci[i, 3:6], jds[i])
+                states_ecef[i, 0:3] = r_ecef
+                states_ecef[i, 3:6] = v_ecef
+                lat, lon, alt = ecef_to_geodetic(r_ecef)
+                geodetic[i] = [lat, lon, alt]
+
         coes = []
         for i in range(0, n_points, max(1, n_points // 100)):
             coes.append({

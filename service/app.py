@@ -231,7 +231,7 @@ def propagate_orbit():
             integrator="RKF78",
             attitude_mode=att_mode,
             use_j2=True, use_j3=True, use_j4=True,
-            use_drag=True, use_sun=True, use_moon=True, use_srp=True,
+            use_drag=is_leo, use_sun=not is_leo, use_moon=not is_leo, use_srp=not is_leo,
             cd=float(data.get("cd", 2.2)),
             cr=1.2,
             area_drag_min=area * 0.8,
@@ -241,7 +241,7 @@ def propagate_orbit():
         pred_res = unified.predict(
             initial_state_eci=y0_eci,
             epoch_jd=epoch_jd,
-            duration_hours=duration_hours,
+            duration_hours=(t_span / 3600.0),
             dt_step=dt_step,
             truth_reference_eci=truth_res["states_eci"],
         )
@@ -262,12 +262,13 @@ def propagate_orbit():
     else:
         return jsonify({"error": f"Unknown propagator {propagator_type}"}), 400
 
-    # 3. 计算 SGP4 与真轨之间的 RIC 误差时序
+    # 3. 计算模型与真轨之间的 RIC 误差时序 (若为 SGP4 则计算 SGP4 偏差)
     from core.coordinates import compute_ric_errors
-    n_pts = len(res["times_s"])
+    eval_states = res["states_eci"] if propagator_type != "SGP4" else sgp4_res["states_eci"]
+    n_pts = min(len(eval_states), len(truth_res["states_eci"]))
     for i in range(n_pts):
         ric = compute_ric_errors(
-            sgp4_res["states_eci"][i, 0:3], sgp4_res["states_eci"][i, 3:6],
+            eval_states[i, 0:3], eval_states[i, 3:6],
             truth_res["states_eci"][i, 0:3], truth_res["states_eci"][i, 3:6]
         )
         ric_residuals.append([ric["dr_radial"], ric["dr_in_track"], ric["dr_cross_track"]])

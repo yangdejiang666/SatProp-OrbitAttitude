@@ -98,12 +98,12 @@
         <!-- Module 4: Dynamics, Attitude & Camera Mode Card -->
         <div class="top-nav-card dynamics-card">
             <select id="select-propagator" class="select-control algo-select" title="动力学预测器算法">
+                <option value="HYBRID_ML" selected>物理 + ML残差 (Hybrid)</option>
                 <option value="UNIFIED">统一多物理预测 (Unified)</option>
-                <option value="HYBRID_ML">物理 + ML残差 (Hybrid)</option>
-                <option value="SGP4">标准分析模型 (SGP4)</option>
                 <option value="COWELL_RKF78">数值积分 (Cowell RKF78)</option>
                 <option value="COWELL_RK4">经典龙格库塔 (RK4)</option>
                 <option value="COWELL_ABM4">多步法 (ABM4)</option>
+                <option value="SGP4">标准分析模型 (SGP4)</option>
             </select>
             <select id="select-attitude-mode" class="select-control att-select" title="卫星姿态指向模式">
                 <option value="NADIR">对地定向 (Nadir)</option>
@@ -316,7 +316,7 @@
                 <div class="panel-header" style="margin-top: 6px;">
                     <h3>⚡ 数值积分算法对比 (RK4 vs RKF78 vs ABM4)</h3>
                 </div>
-                <div class="chart-container-box" style="height: 130px;">
+                <div class="chart-container-box" style="height: 155px;">
                     <canvas id="chart-benchmark"></canvas>
                 </div>
             </div>
@@ -349,9 +349,9 @@
         <div class="dock-warp-group">
             <span class="dock-warp-label">动力学推演倍速:</span>
             <div class="warp-btn-cluster">
-                <button id="btn-warp-1x" class="warp-speed-btn active" data-warp="1">1x 实时</button>
+                <button id="btn-warp-1x" class="warp-speed-btn" data-warp="1">1x 实时</button>
                 <button id="btn-warp-10x" class="warp-speed-btn" data-warp="10">10x</button>
-                <button id="btn-warp-60x" class="warp-speed-btn" data-warp="60">60x (1分/s)</button>
+                <button id="btn-warp-60x" class="warp-speed-btn active" data-warp="60">60x (1分/s)</button>
                 <button id="btn-warp-300x" class="warp-speed-btn" data-warp="300">300x (5分/s)</button>
                 <button id="btn-warp-1200x" class="warp-speed-btn" data-warp="1200">1200x (20分/s)</button>
                 <button id="btn-warp-pause" class="warp-speed-btn" title="暂停/继续动力学积分 (快捷键: 空格)">⏸ 暂停</button>

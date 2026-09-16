@@ -73,47 +73,65 @@ class DashboardCharts {
             this.benchmarkChart = new Chart(ctxBench, {
                 type: 'bar',
                 data: {
-                    labels: ['RK4', 'RKF78', 'ABM4'],
+                    labels: ['RK4 定步长', 'RKF78 自适应', 'ABM4 多步法'],
                     datasets: [
                         {
-                            label: 'Execution Time (ms)',
-                            backgroundColor: 'rgba(0, 240, 255, 0.6)',
-                            borderColor: '#00f0ff',
+                            label: '耗时 Time (ms)',
+                            backgroundColor: 'rgba(56, 189, 248, 0.65)',
+                            borderColor: '#38bdf8',
                             borderWidth: 1,
-                            data: [26, 15, 14],
-                            yAxisID: 'y'
+                            borderRadius: 3,
+                            data: [15.5, 8.4, 9.2],
+                            yAxisID: 'y',
+                            barPercentage: 0.65,
+                            categoryPercentage: 0.72
                         },
                         {
-                            label: 'Max Pos Error (m)',
-                            backgroundColor: 'rgba(255, 170, 0, 0.6)',
-                            borderColor: '#ffaa00',
+                            label: '最大误差 Error (m)',
+                            backgroundColor: 'rgba(251, 191, 36, 0.65)',
+                            borderColor: '#fbbf24',
                             borderWidth: 1,
-                            data: [12.4, 0.08, 1.15],
-                            yAxisID: 'y1'
+                            borderRadius: 3,
+                            data: [5761.4, 0.08, 5761.4],
+                            yAxisID: 'y1',
+                            barPercentage: 0.65,
+                            categoryPercentage: 0.72
                         }
                     ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: { top: 6, bottom: 2, left: 2, right: 2 }
+                    },
                     scales: {
-                        x: { grid: { display: false }, ticks: { color: '#cbd5e1' } },
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                color: '#cbd5e1',
+                                font: { size: 10, family: 'Inter', weight: '600' },
+                                maxRotation: 0,
+                                minRotation: 0,
+                                autoSkip: false
+                            }
+                        },
                         y: {
                             type: 'linear',
                             position: 'left',
-                            ticks: { color: '#00f0ff' },
-                            title: { display: true, text: 'Time (ms)', color: '#00f0ff' }
+                            ticks: { color: '#38bdf8', font: { size: 9, family: 'JetBrains Mono' } },
+                            title: { display: true, text: 'Time (ms)', color: '#38bdf8', font: { size: 9 } }
                         },
                         y1: {
                             type: 'logarithmic',
                             position: 'right',
                             grid: { drawOnChartArea: false },
-                            ticks: { color: '#ffaa00' },
-                            title: { display: true, text: 'Error (m)', color: '#ffaa00' }
+                            ticks: { color: '#fbbf24', font: { size: 9, family: 'JetBrains Mono' } },
+                            title: { display: true, text: 'Error (m)', color: '#fbbf24', font: { size: 9 } }
                         }
                     },
                     plugins: {
-                        legend: { labels: { color: '#cbd5e1', boxWidth: 10 } }
+                        legend: { labels: { color: '#cbd5e1', boxWidth: 10, font: { size: 9.5 } } }
                     }
                 }
             });
@@ -126,11 +144,16 @@ class DashboardCharts {
             const res = await fetch(`/api/benchmark?sat_id=${satId}&hours=1.0&dt=30.0`);
             const data = await res.json();
             if (this.benchmarkChart && data.methods) {
+                const methodLabelMap = {
+                    'RK4 (Fixed Step)': 'RK4 定步长',
+                    'RKF78 (Adaptive)': 'RKF78 自适应',
+                    'ABM4 (Predictor-Corrector)': 'ABM4 多步法'
+                };
                 const labels = [];
                 const times = [];
                 const errors = [];
                 for (const [mName, mStats] of Object.entries(data.methods)) {
-                    labels.push(mName);
+                    labels.push(methodLabelMap[mName] || mName.split(' ')[0]);
                     const tMs = mStats.wall_time_ms ?? (mStats.elapsed_s != null ? mStats.elapsed_s * 1000.0 : 15.0);
                     const eM = mStats.max_pos_error_m ?? 1.0;
                     times.push(parseFloat(tMs.toFixed(1)));
@@ -146,18 +169,45 @@ class DashboardCharts {
         }
     }
 
+    resetRicStreaming() {
+        if (!this.ricChart) return;
+        this.ricChart.data.labels = [];
+        this.ricChart.data.datasets[0].data = [];
+        this.ricChart.data.datasets[1].data = [];
+        this.ricChart.data.datasets[2].data = [];
+        this.ricChart.update('none');
+    }
+
+    pushLiveRicSample(timeLabel, dr, di, dc) {
+        if (!this.ricChart) return;
+        const d = this.ricChart.data;
+        const maxLivePoints = 32;
+
+        d.labels.push(timeLabel);
+        d.datasets[0].data.push(dr);
+        d.datasets[1].data.push(di);
+        d.datasets[2].data.push(dc);
+
+        if (d.labels.length > maxLivePoints) {
+            d.labels.shift();
+            d.datasets[0].data.shift();
+            d.datasets[1].data.shift();
+            d.datasets[2].data.shift();
+        }
+        this.ricChart.update('none');
+    }
+
     updateRicChart(times_s, ric_residuals) {
         if (!this.ricChart || !ric_residuals || ric_residuals.length === 0) return;
 
-        const maxPoints = 60;
-        const step = Math.max(1, Math.floor(ric_residuals.length / maxPoints));
-
+        // Initialize with initial slice of points for instant visual feedback
+        const initPoints = Math.min(25, ric_residuals.length);
         const labels = [];
         const dr_r = [];
         const dr_i = [];
         const dr_c = [];
 
-        for (let i = 0; i < ric_residuals.length; i += step) {
+        for (let i = 0; i < initPoints; i++) {
             labels.push(Math.round(times_s[i] / 60) + 'm');
             dr_r.push(ric_residuals[i][0]);
             dr_i.push(ric_residuals[i][1]);
