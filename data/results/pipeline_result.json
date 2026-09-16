@@ -1,0 +1,28 @@
+{
+  "timestamp_utc": "2026-09-16T09:04:17.481588+00:00",
+  "mission_parameters": {
+    "satellite_id": "cartosat2",
+    "duration_hours": 1.5,
+    "dt_step": 30.0,
+    "model_type": "LSTM"
+  },
+  "performance_benchmark": {
+    "sgp4_time_ms": 13.4810000017751,
+    "cowell_rkf78_time_ms": 33.53919999790378,
+    "ml_training_time_s": 2.218619799998123
+  },
+  "error_evaluation": {
+    "uncorrected_sgp4_pos_1sigma_m": 14675.7705078125,
+    "corrected_hybrid_pos_1sigma_m": 3827.87548828125,
+    "error_reduction_pct_1sigma": 73.91703906623833,
+    "target_achieved": true
+  },
+  "ground_station_passes_count": {
+    "Beijing Tracking Station": 1,
+    "Kashi Ground Station": 0,
+    "Sanya Tracking Station": 1,
+    "Svalbard Polar Station": 1,
+    "Malindi Tracking Station": 0
+  },
+  "active_isl_links_count": 1
+}

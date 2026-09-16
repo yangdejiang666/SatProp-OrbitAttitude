@@ -16,6 +16,7 @@ from core.coordinates import ecef_to_eci, eci_to_ecef, ecef_to_geodetic
 from core.kepler import rv_to_coe, coe_to_rv
 from attitude.quaternions import quat_to_euler
 from propagators.sgp4_propagator import SGP4Propagator
+from propagators.cowell_propagator import CowellPropagator
 
 
 class SatelliteDataManager:
@@ -169,6 +170,12 @@ class SatelliteDataManager:
         corrected_state[3:6] += delta_v_vec
         coe_corrected = rv_to_coe(corrected_state[0:3], corrected_state[3:6])
 
+        # 生成 1 个周期的 3D 轨迹用于在三维场景中展示偏轨与回归正轨
+        cowell = CowellPropagator(integrator="RK4", use_j2=True)
+        t_orbit = 5400.0
+        res_nom = cowell.propagate(t_orbit, 45.0, 2460000.5, initial_state_eci=corrected_state)
+        res_drf = cowell.propagate(t_orbit, 45.0, 2460000.5, initial_state_eci=current_state_eci)
+
         return {
             "initial_coe": coe_curr,
             "target_semi_major_axis_km": nominal_semi_major_axis / 1000.0,
@@ -179,4 +186,6 @@ class SatelliteDataManager:
             "corrected_coe": coe_corrected,
             "initial_state_eci": current_state_eci.tolist(),
             "corrected_state_eci": corrected_state.tolist(),
+            "nominal_orbit_eci": res_nom["states_eci"][:, 0:3].tolist(),
+            "drifted_orbit_eci": res_drf["states_eci"][:, 0:3].tolist(),
         }

@@ -119,6 +119,7 @@ def run_integrator_benchmark(
         benchmark_results["methods"][label] = {
             "method": method_name,
             "elapsed_s": float(stats.get("elapsed_s", 0.0)),
+            "wall_time_ms": float(stats.get("elapsed_s", 0.0) * 1000.0),
             "n_evals": int(stats.get("n_evals", 0)),
             "max_pos_error_m": max_pos_err,
             "final_pos_error_m": final_pos_err,

@@ -73,40 +73,48 @@ def propagate_orbit():
     epoch_jd = sgp4_prop.epoch_jd
     y0_eci = sgp4_prop.get_initial_state_eci()
 
-    if propagator_type == "SGP4":
-        res = sgp4_prop.propagate(t_span, dt_step, epoch_jd)
-    elif propagator_type in ["COWELL_RKF78", "COWELL_RK4", "COWELL_ABM4"]:
-        method = "RKF78" if "RKF78" in propagator_type else ("RK4" if "RK4" in propagator_type else "ABM4")
-        cowell = CowellPropagator(
-            integrator=method,
-            use_j2=data.get("use_j2", True),
-            use_j3=data.get("use_j3", True),
-            use_j4=data.get("use_j4", True),
-            use_drag=data.get("use_drag", True),
-            use_sun=data.get("use_sun", True),
-            use_moon=data.get("use_moon", True),
-            use_srp=data.get("use_srp", True),
-        )
-        res = cowell.propagate(t_span, dt_step, epoch_jd, initial_state_eci=y0_eci)
-    elif propagator_type == "HYBRID_ML":
-        # Check or train ML model for this satellite
-        if sat_id not in ml_cache:
-            # Generate truth using Cowell RKF78 over 1 orbit
-            cowell_truth = CowellPropagator(integrator="RKF78", tol=1e-9)
-            truth_res = cowell_truth.propagate(3600.0 * 2.0, 30.0, epoch_jd, initial_state_eci=y0_eci)
-            sgp4_base = sgp4_prop.propagate(3600.0 * 2.0, 30.0, epoch_jd)
+    # 1. 始终生成 SGP4 基线外推
+    sgp4_res = sgp4_prop.propagate(t_span, dt_step, epoch_jd)
 
+    # 2. 始终生成 Cowell RKF78 高保真参考真轨 (用于 3D 场景对比与残差基准)
+    cowell_truth = CowellPropagator(integrator="RKF78", tol=1e-8, use_j2=True, use_drag=True)
+    truth_res = cowell_truth.propagate(t_span, dt_step, epoch_jd, initial_state_eci=y0_eci)
+
+    ml_metrics = None
+    ric_residuals = []
+
+    if propagator_type == "SGP4":
+        res = sgp4_res
+    elif propagator_type in ["COWELL_RKF78", "COWELL_RK4", "COWELL_ABM4"]:
+        if propagator_type == "COWELL_RKF78":
+            res = truth_res
+        else:
+            method = "RK4" if "RK4" in propagator_type else "ABM4"
+            cowell = CowellPropagator(
+                integrator=method,
+                use_j2=data.get("use_j2", True),
+                use_j3=data.get("use_j3", True),
+                use_j4=data.get("use_j4", True),
+                use_drag=data.get("use_drag", True),
+                use_sun=data.get("use_sun", True),
+                use_moon=data.get("use_moon", True),
+                use_srp=data.get("use_srp", True),
+            )
+            res = cowell.propagate(t_span, dt_step, epoch_jd, initial_state_eci=y0_eci)
+    elif propagator_type == "HYBRID_ML":
+        # 缓存或训练该卫星的 LSTM 残差模型
+        if sat_id not in ml_cache:
             seq_dict = build_residual_sequences(
-                states_sgp4=sgp4_base["states_eci"],
-                states_truth=truth_res["states_eci"],
-                times_s=sgp4_base["times_s"],
+                states_sgp4=sgp4_res["states_eci"][:min(len(sgp4_res["times_s"]), 180)],
+                states_truth=truth_res["states_eci"][:min(len(truth_res["times_s"]), 180)],
+                times_s=sgp4_res["times_s"][:min(len(sgp4_res["times_s"]), 180)],
                 seq_length=12,
             )
             model, hist, scalers = train_residual_model(
                 features=seq_dict["features"],
                 targets=seq_dict["targets"],
                 model_type="LSTM",
-                epochs=40,
+                epochs=35,
                 batch_size=16,
             )
             eval_metrics = evaluate_residual_correction(
@@ -126,11 +134,37 @@ def propagate_orbit():
             seq_length=12,
         )
         res = hybrid_prop.propagate(t_span, dt_step, epoch_jd)
-        res["ml_metrics"] = cached["eval_metrics"]
+        ml_metrics = cached["eval_metrics"]
     else:
         return jsonify({"error": f"Unknown propagator {propagator_type}"}), 400
 
-    # Format JSON response (truncate coordinates to clean precision)
+    # 3. 计算 SGP4 与真轨之间的 RIC 误差时序
+    from core.coordinates import compute_ric_errors
+    n_pts = len(res["times_s"])
+    for i in range(n_pts):
+        ric = compute_ric_errors(
+            sgp4_res["states_eci"][i, 0:3], sgp4_res["states_eci"][i, 3:6],
+            truth_res["states_eci"][i, 0:3], truth_res["states_eci"][i, 3:6]
+        )
+        ric_residuals.append([ric["dr_radial"], ric["dr_in_track"], ric["dr_cross_track"]])
+
+    # 4. 计算近地点与远地点信息点
+    r_norms = np.linalg.norm(res["states_eci"][:, 0:3], axis=1)
+    peri_idx = int(np.argmin(r_norms))
+    apog_idx = int(np.argmax(r_norms))
+
+    perigee_info = {
+        "alt_km": float((r_norms[peri_idx] - 6378137.0) / 1000.0),
+        "pos_eci": res["states_eci"][peri_idx, 0:3].tolist(),
+        "time_s": float(res["times_s"][peri_idx]),
+    }
+    apogee_info = {
+        "alt_km": float((r_norms[apog_idx] - 6378137.0) / 1000.0),
+        "pos_eci": res["states_eci"][apog_idx, 0:3].tolist(),
+        "time_s": float(res["times_s"][apog_idx]),
+    }
+
+    # 5. 格式化返回结果
     response_payload = {
         "satellite": sat_entry["name"],
         "propagator": propagator_type,
@@ -141,14 +175,15 @@ def propagate_orbit():
         "geodetic": res["geodetic"].tolist(),
         "coes": res.get("coes", []),
         "stats": res.get("stats", {}),
+        "baseline_sgp4_eci": sgp4_res["states_eci"].tolist(),
+        "truth_eci": truth_res["states_eci"].tolist(),
+        "predicted_ric_residuals": ric_residuals,
+        "perigee": perigee_info,
+        "apogee": apogee_info,
     }
-    if "predicted_ric_residuals" in res:
-        response_payload["predicted_ric_residuals"] = res["predicted_ric_residuals"].tolist()
-    if "baseline_sgp4_eci" in res:
-        response_payload["baseline_sgp4_eci"] = res["baseline_sgp4_eci"].tolist()
-    if "ml_metrics" in res:
+    if ml_metrics:
         response_payload["ml_metrics"] = {
-            k: v for k, v in res["ml_metrics"].items()
+            k: v for k, v in ml_metrics.items()
             if k not in ["predicted_residuals", "corrected_residuals"]
         }
 

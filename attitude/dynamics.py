@@ -10,6 +10,7 @@ Includes:
 Reference: Sidi (1997) Spacecraft Dynamics and Control; Markley & Crassidis (2014).
 """
 
+import math
 from typing import Dict, Any, List, Tuple
 import numpy as np
 from core.constants import MU_EARTH
@@ -173,38 +174,39 @@ class AttitudeSimulator:
             else:
                 q_des = np.array([1.0, 0.0, 0.0, 0.0])
 
-            # Environmental torque
-            tau_gg = self.gravity_gradient_torque(r_eci, q_curr)
-            # Control torque
-            tau_ctrl = self.control_torque(q_curr, omega_curr, q_des)
-            tau_total = tau_gg + tau_ctrl
+            # Sub-stepping for attitude rotational stability (dt_sub <= 0.2s)
+            n_sub = max(1, int(math.ceil(dt / 0.2)))
+            h_sub = dt / n_sub
+
+            for _ in range(n_sub):
+                tau_gg = self.gravity_gradient_torque(r_eci, q_curr)
+                tau_ctrl = self.control_torque(q_curr, omega_curr, q_des)
+                tau_total = tau_gg + tau_ctrl
+
+                def attitude_deriv(q, w):
+                    dq = quat_derivative(q, w)
+                    dw = self.I_inv @ (tau_total - np.cross(w, self.I @ w))
+                    return dq, dw
+
+                dq1, dw1 = attitude_deriv(q_curr, omega_curr)
+                dq2, dw2 = attitude_deriv(
+                    quat_normalize(q_curr + 0.5 * h_sub * dq1), omega_curr + 0.5 * h_sub * dw1
+                )
+                dq3, dw3 = attitude_deriv(
+                    quat_normalize(q_curr + 0.5 * h_sub * dq2), omega_curr + 0.5 * h_sub * dw2
+                )
+                dq4, dw4 = attitude_deriv(
+                    quat_normalize(q_curr + h_sub * dq3), omega_curr + h_sub * dw3
+                )
+
+                q_curr = quat_normalize(
+                    q_curr + (h_sub / 6.0) * (dq1 + 2.0 * dq2 + 2.0 * dq3 + dq4)
+                )
+                omega_curr = (
+                    omega_curr + (h_sub / 6.0) * (dw1 + 2.0 * dw2 + 2.0 * dw3 + dw4)
+                )
+
             torques_arr[i] = tau_total
-
-            # Euler rotational equations: I * dw/dt + w x (I * w) = tau
-            # dw/dt = I_inv * (tau - w x (I * w))
-            def attitude_deriv(q, w):
-                dq = quat_derivative(q, w)
-                dw = self.I_inv @ (tau_total - np.cross(w, self.I @ w))
-                return dq, dw
-
-            # RK4 step
-            dq1, dw1 = attitude_deriv(q_curr, omega_curr)
-            dq2, dw2 = attitude_deriv(
-                quat_normalize(q_curr + 0.5 * dt * dq1), omega_curr + 0.5 * dt * dw1
-            )
-            dq3, dw3 = attitude_deriv(
-                quat_normalize(q_curr + 0.5 * dt * dq2), omega_curr + 0.5 * dt * dw2
-            )
-            dq4, dw4 = attitude_deriv(
-                quat_normalize(q_curr + dt * dq3), omega_curr + dt * dw3
-            )
-
-            q_curr = quat_normalize(
-                q_curr + (dt / 6.0) * (dq1 + 2.0 * dq2 + 2.0 * dq3 + dq4)
-            )
-            omega_curr = (
-                omega_curr + (dt / 6.0) * (dw1 + 2.0 * dw1 + 2.0 * dw3 + dw4)
-            )
 
         return {
             "times_s": times_s,

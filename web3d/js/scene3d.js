@@ -18,8 +18,12 @@ class SpaceScene {
         this.createEarth();
         this.createAtmosphere();
         this.createSatelliteModel();
+        this.cameraMode = 'FREE'; // 'FREE', 'FOLLOW', 'STATION'
+        this.activeStation = null;
         this.initOrbitLines();
         this.createGroundStations();
+        this.createTrackingBeam();
+        this.initApsidesMarkers();
 
         this.animate = this.animate.bind(this);
         requestAnimationFrame(this.animate);
@@ -44,8 +48,8 @@ class SpaceScene {
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
-        this.controls.minDistance = 11.5;
-        this.controls.maxDistance = 120.0;
+        this.controls.minDistance = 10.5;
+        this.controls.maxDistance = 140.0;
 
         // Space Lighting
         this.ambientLight = new THREE.AmbientLight(0x223355, 1.2);
@@ -255,16 +259,16 @@ class SpaceScene {
         // Orbit lines registry
         this.orbitLines = {};
 
-        // SGP4 Baseline: Cyan
-        this.orbitLines.sgp4 = this.createOrbitLineMesh(0x00f0ff, 1.5, false);
-        // Cowell RKF78 Truth: Amber
-        this.orbitLines.truth = this.createOrbitLineMesh(0xffaa00, 2.0, false);
-        // Hybrid ML Corrected: Emerald Neon Green
+        // SGP4 Baseline: Red / Coral (Original drift orbit)
+        this.orbitLines.sgp4 = this.createOrbitLineMesh(0xff3366, 1.8, false);
+        // Cowell RKF78 Truth: Amber / Yellow (High-fidelity reference orbit)
+        this.orbitLines.truth = this.createOrbitLineMesh(0xffaa00, 2.2, false);
+        // Hybrid ML Corrected: Neon Emerald Green (AI-corrected orbit)
         this.orbitLines.hybrid = this.createOrbitLineMesh(0x00ff88, 2.5, false);
-        // Drifted Orbit: Red
-        this.orbitLines.drifted = this.createOrbitLineMesh(0xff3366, 1.5, true);
+        // Drifted Orbit: Dashed Red
+        this.orbitLines.drifted = this.createOrbitLineMesh(0xff0055, 1.5, true);
         // Station-Keeping Maneuver Path: Gold
-        this.orbitLines.maneuver = this.createOrbitLineMesh(0xffd700, 3.0, false);
+        this.orbitLines.maneuver = this.createOrbitLineMesh(0xffd700, 3.2, false);
     }
 
     createOrbitLineMesh(colorHex, linewidth, isDashed = false) {
@@ -274,7 +278,7 @@ class SpaceScene {
                 dashSize: 0.5,
                 gapSize: 0.25,
                 transparent: true,
-                opacity: 0.75
+                opacity: 0.8
             })
             : new THREE.LineBasicMaterial({
                 color: colorHex,
@@ -308,6 +312,12 @@ class SpaceScene {
             line.computeLineDistances();
         }
         line.visible = true;
+    }
+
+    setOrbitVisibility(key, visible) {
+        if (this.orbitLines && this.orbitLines[key]) {
+            this.orbitLines[key].visible = visible;
+        }
     }
 
     createGroundStations() {
@@ -351,10 +361,123 @@ class SpaceScene {
             cone.quaternion.copy(marker.quaternion);
             this.stationGroup.add(cone);
 
-            this.stationMarkers.push({ marker, cone, name: st.name });
+            this.stationMarkers.push({ marker, cone, name: st.name, position: new THREE.Vector3(x, y, z) });
         });
 
         this.scene.add(this.stationGroup);
+    }
+
+    createTrackingBeam() {
+        const mat = new THREE.LineBasicMaterial({
+            color: 0x00f0ff,
+            transparent: true,
+            opacity: 0.9,
+            linewidth: 2,
+            blending: THREE.AdditiveBlending
+        });
+        const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        this.trackingBeam = new THREE.Line(geo, mat);
+        this.trackingBeam.visible = false;
+        this.scene.add(this.trackingBeam);
+    }
+
+    setTrackingBeam(active, stationName = null) {
+        if (!this.trackingBeam) return;
+        if (!active || !stationName || !this.satGroup) {
+            this.trackingBeam.visible = false;
+            this.activeStation = null;
+            return;
+        }
+
+        const st = this.stationMarkers.find(s => s.name === stationName);
+        if (!st) {
+            this.trackingBeam.visible = false;
+            return;
+        }
+
+        this.activeStation = st;
+        const positions = new Float32Array([
+            st.position.x, st.position.y, st.position.z,
+            this.satGroup.position.x, this.satGroup.position.y, this.satGroup.position.z
+        ]);
+        this.trackingBeam.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        this.trackingBeam.visible = true;
+    }
+
+    initApsidesMarkers() {
+        // 1. Perigee marker (Neon Green with glow ring)
+        const periGeo = new THREE.SphereGeometry(0.2, 16, 16);
+        const periMat = new THREE.MeshBasicMaterial({ color: 0x00ff88 });
+        this.periMarker = new THREE.Mesh(periGeo, periMat);
+        this.periMarker.visible = false;
+        this.scene.add(this.periMarker);
+
+        // 2. Apogee marker (Neon Amber / Orange)
+        const apogGeo = new THREE.SphereGeometry(0.2, 16, 16);
+        const apogMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+        this.apogMarker = new THREE.Mesh(apogGeo, apogMat);
+        this.apogMarker.visible = false;
+        this.scene.add(this.apogMarker);
+    }
+
+    updateApsides(perigeeData, apogeeData) {
+        const pEci = perigeeData ? (perigeeData.pos_eci || perigeeData.r_eci) : null;
+        if (pEci) {
+            const px = pEci[0] * this.scaleRatio;
+            const py = pEci[2] * this.scaleRatio;
+            const pz = -pEci[1] * this.scaleRatio;
+            this.periMarker.position.set(px, py, pz);
+            this.periMarker.visible = true;
+        } else {
+            this.periMarker.visible = false;
+        }
+
+        const aEci = apogeeData ? (apogeeData.pos_eci || apogeeData.r_eci) : null;
+        if (aEci) {
+            const ax = aEci[0] * this.scaleRatio;
+            const ay = aEci[2] * this.scaleRatio;
+            const az = -aEci[1] * this.scaleRatio;
+            this.apogMarker.position.set(ax, ay, az);
+            this.apogMarker.visible = true;
+        } else {
+            this.apogMarker.visible = false;
+        }
+    }
+
+    getScreenCoordinates(threeVec) {
+        const v = threeVec.clone();
+        v.project(this.camera);
+
+        const halfWidth = this.container.clientWidth / 2;
+        const halfHeight = this.container.clientHeight / 2;
+
+        return {
+            x: (v.x * halfWidth) + halfWidth,
+            y: -(v.y * halfHeight) + halfHeight,
+            visible: v.z < 1.0 && v.z > -1.0
+        };
+    }
+
+    setCameraMode(mode) {
+        this.cameraMode = mode;
+        if (mode === 'FREE') {
+            this.controls.target.set(0, 0, 0);
+            this.controls.enableRotate = true;
+        } else if (mode === 'FOLLOW') {
+            if (this.satGroup) {
+                this.controls.target.copy(this.satGroup.position);
+            }
+        } else if (mode === 'STATION') {
+            const st = this.activeStation || this.stationMarkers[0];
+            if (st) {
+                // Position camera near the ground station, looking upwards at the satellite
+                const offset = st.position.clone().normalize().multiplyScalar(this.earthRadius + 1.2);
+                this.camera.position.copy(offset);
+                if (this.satGroup) {
+                    this.controls.target.copy(this.satGroup.position);
+                }
+            }
+        }
     }
 
     setSatelliteState(r_eci, quaternion = null) {
@@ -394,6 +517,23 @@ class SpaceScene {
         // Slow Earth rotation
         if (this.earthMesh) {
             this.earthMesh.rotation.y += 0.0003;
+        }
+
+        // Camera follow modes
+        if (this.cameraMode === 'FOLLOW' && this.satGroup) {
+            this.controls.target.lerp(this.satGroup.position, 0.1);
+        } else if (this.cameraMode === 'STATION' && this.satGroup) {
+            this.controls.target.lerp(this.satGroup.position, 0.1);
+        }
+
+        // Update tracking laser beam dynamically if active
+        if (this.trackingBeam && this.trackingBeam.visible && this.activeStation && this.satGroup) {
+            const st = this.activeStation;
+            const positions = new Float32Array([
+                st.position.x, st.position.y, st.position.z,
+                this.satGroup.position.x, this.satGroup.position.y, this.satGroup.position.z
+            ]);
+            this.trackingBeam.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         }
 
         // Thruster flicker if active

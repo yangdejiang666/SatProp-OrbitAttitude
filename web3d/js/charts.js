@@ -116,6 +116,32 @@ class DashboardCharts {
                     }
                 }
             });
+            this.loadBenchmarkData();
+        }
+    }
+
+    async loadBenchmarkData() {
+        try {
+            const res = await fetch('/api/benchmark?hours=3.0&dt=30.0');
+            const data = await res.json();
+            if (this.benchmarkChart && data.methods) {
+                const labels = [];
+                const times = [];
+                const errors = [];
+                for (const [mName, mStats] of Object.entries(data.methods)) {
+                    labels.push(mName);
+                    const tMs = mStats.wall_time_ms ?? (mStats.elapsed_s != null ? mStats.elapsed_s * 1000.0 : 15.0);
+                    const eM = mStats.max_pos_error_m ?? 1.0;
+                    times.push(parseFloat(tMs.toFixed(1)));
+                    errors.push(parseFloat(eM.toFixed(3)));
+                }
+                this.benchmarkChart.data.labels = labels;
+                this.benchmarkChart.data.datasets[0].data = times;
+                this.benchmarkChart.data.datasets[1].data = errors;
+                this.benchmarkChart.update();
+            }
+        } catch (e) {
+            // Retain default data on offline/fallback
         }
     }
 
