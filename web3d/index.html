@@ -82,15 +82,16 @@
                 <option value="FREE">🌍 自由全景视角</option>
                 <option value="FOLLOW">🎯 锁定跟踪视角</option>
                 <option value="CLOSEUP">🔍 卫星近景特写</option>
+                <option value="CELESTIAL">🌕 月球与深空天体视角</option>
                 <option value="STATION">📡 测控站仰视视角</option>
             </select>
 
             <!-- Satellite Selection -->
             <select id="select-satellite" class="select-control" title="选择目标卫星">
+                <option value="tiangong" selected>TIANGONG (中国天宫空间站 - 实测TLE)</option>
+                <option value="iss">ISS (国际空间站 - NASA/Space-Track实测TLE)</option>
                 <option value="cartosat2">CARTOSAT-2 (遥感卫星)</option>
-                <option value="tiangong">TIANGONG (天宫空间站)</option>
                 <option value="beidou">BEIDOU (北斗导航卫星)</option>
-                <option value="iss">ISS (国际空间站)</option>
                 <option value="starlink">STARLINK (星链通信卫星)</option>
             </select>
 

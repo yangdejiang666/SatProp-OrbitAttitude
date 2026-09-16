@@ -26,6 +26,7 @@ from analysis.isl_topology import analyze_constellation_isl_topology
 from service.data_manager import SatelliteDataManager
 from propagators.unified_predictor import UnifiedOrbitPredictor
 from service.telemetry_interface import global_telemetry_manager
+from core.celestial import get_full_celestial_system
 
 WEB3D_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web3d"))
 
@@ -59,6 +60,24 @@ def health_check():
 @app.route("/api/satellites", methods=["GET"])
 def get_satellites():
     return jsonify(data_manager.get_satellite_list())
+
+
+@app.route("/api/satellites/sync_real", methods=["POST"])
+def sync_real_satellites():
+    """Reloads predefined Space-Track/CelesTrak TLEs."""
+    data_manager.load_predefined_tles()
+    return jsonify({"status": "success", "satellites": data_manager.get_satellite_list()})
+
+
+@app.route("/api/ephemeris/celestial", methods=["GET", "POST"])
+def get_celestial_ephemeris():
+    """
+    Returns true astronomical coordinates for the Sun, Moon, and Planets
+    strictly aligned with Beijing Time (CST, UTC+8).
+    """
+    time_str = request.args.get("time") or (request.get_json(silent=True) or {}).get("time")
+    data = get_full_celestial_system(time_str)
+    return jsonify(data)
 
 
 @app.route("/api/telemetry/ingest", methods=["POST"])

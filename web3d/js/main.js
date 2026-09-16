@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Application state
     const state = {
-        currentSatId: 'cartosat2',
+        currentSatId: 'tiangong',
         currentPropagator: 'HYBRID_ML',
         attitudeMode: 'NADIR',
         isPlaying: true,
@@ -28,8 +28,8 @@ document.addEventListener('DOMContentLoaded', () => {
         trajectoryData: null,
         attitudeData: null,
         visibilityData: null,
-        baseEpochMjd: 61115.5, // 2026-03-16 12:00:00 UTC
-        baseEpochDate: new Date('2026-03-16T12:00:00Z'),
+        baseEpochMjd: 61299.8,
+        baseEpochDate: new Date('2026-09-16T11:20:00Z'),
     };
 
     // UI elements
@@ -131,6 +131,25 @@ document.addEventListener('DOMContentLoaded', () => {
             satSelect.value = state.currentSatId;
         } catch (e) {
             console.error('Failed to load satellites:', e);
+        }
+    }
+
+    // 2.5 Fetch Real Celestial Ephemeris (Sun, Moon, Planets, Beijing Time)
+    async function updateCelestial() {
+        try {
+            const res = await fetch('/api/ephemeris/celestial');
+            const data = await res.json();
+            if (data.status === 'success') {
+                scene.updateCelestialEphemeris(data);
+                if (clockUtc) {
+                    clockUtc.textContent = data.beijing_time;
+                }
+                if (clockMjd) {
+                    clockMjd.textContent = `${data.utc_time} | MJD: ${data.mjd.toFixed(4)}`;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to update celestial ephemeris:', e);
         }
     }
 
@@ -658,6 +677,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 8. Launch Application
     loadSatellites().then(() => {
         scene.switchSatelliteModel(state.currentSatId);
+        updateCelestial();
         updatePropagation();
         updateAttitude();
         loadVisibility();
@@ -666,4 +686,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Telemetry update tick (20Hz)
     setInterval(tick, 100);
+
+    // Sync celestial astronomical positions every 30s
+    setInterval(updateCelestial, 30000);
 });
