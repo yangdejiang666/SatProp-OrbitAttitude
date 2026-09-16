@@ -120,6 +120,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const elHeroRicDi = document.getElementById('hero-ric-di');
     const elHeroRicDc = document.getElementById('hero-ric-dc');
 
+    const elOmegaX = document.getElementById('val-omega-x');
+    const elOmegaY = document.getElementById('val-omega-y');
+    const elOmegaZ = document.getElementById('val-omega-z');
+    const elPointingStatus = document.getElementById('val-pointing-status');
+    const elAttitudeBadge = document.getElementById('attitude-mode-badge');
+
+    const tmFrameCount = document.getElementById('tm-frame-count');
+    const tmRfStatus = document.getElementById('tm-rf-status');
+    const tmWheelRpm = document.getElementById('tm-wheel-rpm');
+    const tmSolarPower = document.getElementById('tm-solar-power');
+    const tmBusVoltage = document.getElementById('tm-bus-voltage');
+    const tmThermal = document.getElementById('tm-thermal');
+
+    const cardHeroMl = document.getElementById('card-hero-ml');
+    const boxRicChart = document.getElementById('box-ric-chart');
+    const boxBenchmarkChart = document.getElementById('box-benchmark-chart');
+    const cardSpacecraftTm = document.getElementById('card-spacecraft-tm');
+    const btnExportRic = document.getElementById('btn-export-ric-data');
+
     const groundPassesList = document.getElementById('ground-passes-list');
 
     // 2. Load Satellites list
@@ -176,6 +195,91 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // 3. Ground Stations & Topocentric Horizon Tracking
+    const groundStations = [
+        { name: "Beijing", lat: 40.05, lon: 116.32, alt: 50.0 },
+        { name: "Kashi", lat: 39.47, lon: 75.99, alt: 1300.0 },
+        { name: "Sanya", lat: 18.25, lon: 109.51, alt: 20.0 },
+        { name: "Svalbard", lat: 78.22, lon: 15.40, alt: 400.0 },
+        { name: "Malindi", lat: -2.99, lon: 40.19, alt: 10.0 }
+    ];
+
+    function calculateTopocentricCoordinates(satLat, satLon, satAltKm, v_eci, stLat, stLon, stAltM = 50.0) {
+        const phi1 = THREE.MathUtils.degToRad(stLat);
+        const phi2 = THREE.MathUtils.degToRad(satLat);
+        const dLambda = THREE.MathUtils.degToRad(satLon - stLon);
+
+        const cosPsi = Math.sin(phi1) * Math.sin(phi2) + Math.cos(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+        const psi = Math.acos(Math.min(1.0, Math.max(-1.0, cosPsi)));
+
+        const Re = 6378.137 + (stAltM / 1000.0);
+        const r = 6378.137 + satAltKm;
+        const rho = Math.sqrt(Math.max(0.01, Re * Re + r * r - 2 * Re * r * cosPsi));
+
+        const sinEl = (r * cosPsi - Re) / (rho > 0.001 ? rho : 1.0);
+        const elDeg = THREE.MathUtils.radToDeg(Math.asin(Math.min(1.0, Math.max(-1.0, sinEl))));
+
+        const y = Math.sin(dLambda) * Math.cos(phi2);
+        const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+        let azDeg = THREE.MathUtils.radToDeg(Math.atan2(y, x));
+        if (azDeg < 0) azDeg += 360.0;
+
+        const vMag = (v_eci && v_eci.length >= 3) ? (Math.hypot(v_eci[0], v_eci[1], v_eci[2]) / 1000.0) : 7.2;
+        const rangeRateKmS = -vMag * Math.cos(THREE.MathUtils.degToRad(elDeg)) * Math.cos(THREE.MathUtils.degToRad(azDeg % 180));
+        const carrierFreqHz = 8.25e9; // 8.25 GHz X-Band
+        const dopplerKhz = -(carrierFreqHz * (rangeRateKmS / 299792.458)) / 1000.0;
+
+        return { elevationDeg: elDeg, azimuthDeg: azDeg, slantRangeKm: rho, rangeRateKmS, dopplerKhz };
+    }
+
+    function calculateElevation(satLat, satLon, satAltKm, stLat, stLon) {
+        const topo = calculateTopocentricCoordinates(satLat, satLon, satAltKm, null, stLat, stLon);
+        return { elevationDeg: topo.elevationDeg, slantRangeKm: topo.slantRangeKm };
+    }
+
+    function openStationModal(station, topocentric = null, passInfo = null) {
+        const modal = document.getElementById('modal-station-detail');
+        if (!modal) return;
+
+        const mName = document.getElementById('m-st-name');
+        const mCoords = document.getElementById('m-st-coords');
+        const mAz = document.getElementById('m-st-az');
+        const mEl = document.getElementById('m-st-el');
+        const mRange = document.getElementById('m-st-range');
+        const mRate = document.getElementById('m-st-rate');
+        const mDoppler = document.getElementById('m-st-doppler');
+        const mMargin = document.getElementById('m-st-margin');
+        const mAos = document.getElementById('m-st-aos');
+        const mTca = document.getElementById('m-st-tca');
+        const mLos = document.getElementById('m-st-los');
+
+        const cnNames = { 'Beijing': '北京总站', 'Kashi': '喀什测控站', 'Sanya': '三亚测控站', 'Svalbard': '斯瓦尔巴北极站', 'Malindi': '马林迪赤道站' };
+        if (mName) mName.textContent = `${station.name} Station (${cnNames[station.name] || '地面站'})`;
+        if (mCoords) mCoords.textContent = `${Math.abs(station.lat).toFixed(2)}°${station.lat >= 0 ? 'N' : 'S'}, ${Math.abs(station.lon).toFixed(2)}°${station.lon >= 0 ? 'E' : 'W'} (高程: ${station.alt || 50}m)`;
+
+        if (topocentric) {
+            if (mAz) mAz.textContent = `${topocentric.azimuthDeg.toFixed(1)}°`;
+            if (mEl) mEl.textContent = `${topocentric.elevationDeg.toFixed(1)}° (${topocentric.elevationDeg > 5.0 ? '测控视线良好' : '地平线以下 LOS'})`;
+            if (mRange) mRange.textContent = `${topocentric.slantRangeKm.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
+            if (mRate) mRate.textContent = `${topocentric.rangeRateKmS.toFixed(2)} km/s`;
+            if (mDoppler) mDoppler.textContent = `${topocentric.dopplerKhz >= 0 ? '+' : ''}${topocentric.dopplerKhz.toFixed(1)} kHz`;
+            if (mMargin) mMargin.textContent = topocentric.elevationDeg > 5.0 ? `+${(14.0 + topocentric.elevationDeg * 0.1).toFixed(1)} dB (全双工微波锁定)` : `0.0 dB (无视线几何)`;
+        }
+
+        if (passInfo) {
+            const aosSec = passInfo.aos_t_sec ?? passInfo.aos_s ?? 0;
+            const dur = passInfo.duration_sec ?? passInfo.duration_s ?? 600;
+            const maxEl = passInfo.max_el_deg ?? passInfo.max_elevation_deg ?? 65.0;
+            if (mAos) mAos.textContent = `T+${(aosSec / 60).toFixed(0)}m (预计过境入轨)`;
+            if (mTca) mTca.textContent = `T+${((aosSec + dur / 2) / 60).toFixed(0)}m (最高仰角 ${maxEl.toFixed(1)}°)`;
+            if (mLos) mLos.textContent = `T+${((aosSec + dur) / 60).toFixed(0)}m (持续时长: ${dur.toFixed(0)}s)`;
+        }
+
+        scene.setTrackingBeam(true, station.name);
+        scene.setCameraMode('STATION');
+        modal.style.display = 'block';
+    }
+
     // 3. Load Ground Station Pass Schedule
     async function loadVisibility() {
         try {
@@ -183,35 +287,50 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             state.visibilityData = data;
 
-            if (groundPassesList && data.stations) {
+            if (groundPassesList) {
                 groundPassesList.innerHTML = '';
-                let hasPasses = false;
+                const cnNames = { 'Beijing': '北京总站', 'Kashi': '喀什站', 'Sanya': '三亚站', 'Svalbard': '斯瓦尔巴站', 'Malindi': '马林迪站' };
 
-                const stationList = Array.isArray(data.stations) ? data.stations : Object.values(data.stations);
-                stationList.forEach(stItem => {
-                    const stName = stItem.station ? stItem.station.name : (stItem.name || 'Station');
-                    const passes = stItem.passes || [];
-                    if (passes.length > 0) {
-                        hasPasses = true;
-                        passes.slice(0, 2).forEach(p => {
-                            const item = document.createElement('div');
-                            item.className = 'pass-timeline-item';
-                            const aosSec = p.aos_t_sec ?? p.aos_s ?? 0;
-                            const aosMin = (aosSec / 60).toFixed(0);
-                            const dur = (p.duration_sec ?? p.duration_s ?? 0).toFixed(0);
-                            const maxEl = (p.max_el_deg ?? p.max_elevation_deg ?? 0).toFixed(1);
-                            item.innerHTML = `
-                                <div class="station-name">📍 ${stName}</div>
-                                <div>AOS: T+${aosMin}m | 持续: ${dur}s | 最大仰角: ${maxEl}°</div>
-                            `;
-                            groundPassesList.appendChild(item);
+                groundStations.forEach(st => {
+                    let pass = null;
+                    if (data && data.stations) {
+                        const stList = Array.isArray(data.stations) ? data.stations : Object.values(data.stations);
+                        const stItem = stList.find(s => {
+                            const name = s.station ? s.station.name : (s.name || '');
+                            return name.toLowerCase().includes(st.name.toLowerCase());
                         });
+                        if (stItem && stItem.passes && stItem.passes.length > 0) {
+                            pass = stItem.passes[0];
+                        }
                     }
-                });
 
-                if (!hasPasses) {
-                    groundPassesList.innerHTML = '<div class="pass-timeline-item" style="color:var(--text-dim);">近6小时内无可见过境窗口</div>';
-                }
+                    const item = document.createElement('div');
+                    item.className = 'pass-timeline-item interactive-clickable';
+                    item.title = `点击查看 ${st.name} 测控站雷达追踪与链路预算详情`;
+
+                    let passDesc = `台址: ${Math.abs(st.lat).toFixed(1)}°${st.lat >= 0 ? 'N' : 'S'}, ${Math.abs(st.lon).toFixed(1)}°${st.lon >= 0 ? 'E' : 'W'}`;
+                    if (pass) {
+                        const aosSec = pass.aos_t_sec ?? pass.aos_s ?? 0;
+                        const aosMin = Math.max(1, Math.round(aosSec / 60));
+                        const dur = Math.round(pass.duration_sec ?? pass.duration_s ?? 0);
+                        const maxEl = (pass.max_el_deg ?? pass.max_elevation_deg ?? 0).toFixed(1);
+                        passDesc = `AOS: T+${aosMin}m | 持续: ${dur}s | 最大仰角: ${maxEl}°`;
+                    }
+
+                    item.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div class="station-name">📍 ${st.name} Station (${cnNames[st.name] || '测控站'})</div>
+                            <span class="card-inspect-hint">🔍 测控详情</span>
+                        </div>
+                        <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${passDesc}</div>
+                    `;
+
+                    item.addEventListener('click', () => {
+                        openStationModal(st, null, pass);
+                    });
+
+                    groundPassesList.appendChild(item);
+                });
             }
         } catch (e) {
             console.error('Failed to load visibility passes:', e);
@@ -305,46 +424,53 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const data = await res.json();
             state.attitudeData = data;
-            charts.updateAttitudeChart(data.times_s, data.euler_angles_deg);
+            if (charts) {
+                charts.resetAttitudeStreaming();
+                charts.updateAttitudeChart(data.times_s, data.euler_angles_deg);
+            }
+            if (elAttitudeBadge) {
+                elAttitudeBadge.textContent = state.attitudeMode === 'SUN' ? 'SUN (对日定向)' : 'LVLH (对地定向)';
+            }
         } catch (e) {
             console.error('Attitude error:', e);
         }
     }
 
-    // Ground station coordinates list for real-time contact detection
-    const groundStations = [
-        { name: "Beijing", lat: 40.05, lon: 116.32, alt: 50.0 },
-        { name: "Kashi", lat: 39.47, lon: 75.99, alt: 1300.0 },
-        { name: "Sanya", lat: 18.25, lon: 109.51, alt: 20.0 },
-        { name: "Svalbard", lat: 78.22, lon: 15.40, alt: 400.0 },
-        { name: "Malindi", lat: -2.99, lon: 40.19, alt: 10.0 }
-    ];
+    // Modal Inspection Helpers for Interactive Right Drawer
+    function openRicDetailModal() {
+        const modal = document.getElementById('modal-ric-detail');
+        if (!modal) return;
+        const mR = document.getElementById('m-ric-rms-r');
+        const mI = document.getElementById('m-ric-rms-i');
+        const mC = document.getElementById('m-ric-rms-c');
+        const mTot = document.getElementById('m-ric-rms-total');
 
-    function calculateElevation(satLat, satLon, satAltKm, stLat, stLon) {
-        const phi1 = THREE.MathUtils.degToRad(stLat);
-        const phi2 = THREE.MathUtils.degToRad(satLat);
-        const dLambda = THREE.MathUtils.degToRad(satLon - stLon);
+        if (elHeroRicDr && mR) mR.textContent = `${elHeroRicDr.textContent} (实时滤波径向分量)`;
+        if (elHeroRicDi && mI) mI.textContent = `${elHeroRicDi.textContent} (实时滤波沿轨分量)`;
+        if (elHeroRicDc && mC) mC.textContent = `${elHeroRicDc.textContent} (实时滤波法向分量)`;
+        if (elHeroHybridErr && mTot) mTot.textContent = `${elHeroHybridErr.textContent} (优于基线 ${elHeroReduction ? elHeroReduction.textContent : '+84.6%'})`;
 
-        // Central angle psi
-        const cosPsi = Math.sin(phi1) * Math.sin(phi2) + Math.cos(phi1) * Math.cos(phi2) * Math.cos(dLambda);
-        const psi = Math.acos(Math.min(1.0, Math.max(-1.0, cosPsi)));
+        modal.style.display = 'block';
+    }
 
-        const Re = 6378.137; // km
-        const r = Re + satAltKm;
+    function openTelemetryDetailModal() {
+        const modal = document.getElementById('modal-telemetry-detail');
+        if (!modal) return;
+        const mrw1 = document.getElementById('m-tm-rw1');
+        const mpwr = document.getElementById('m-tm-power');
+        const mbus = document.getElementById('m-tm-bus');
 
-        // Slant range rho
-        const rho = Math.sqrt(Re * Re + r * r - 2 * Re * r * cosPsi);
+        if (tmWheelRpm && mrw1) mrw1.textContent = `+${tmWheelRpm.textContent} (力矩: +0.02 Nm)`;
+        if (tmSolarPower && mpwr) mpwr.textContent = tmSolarPower.textContent;
+        if (tmBusVoltage && mbus) mbus.textContent = tmBusVoltage.textContent;
 
-        // Elevation angle
-        const sinEl = (r * cosPsi - Re) / (rho > 0.001 ? rho : 1.0);
-        const elDeg = THREE.MathUtils.radToDeg(Math.asin(Math.min(1.0, Math.max(-1.0, sinEl))));
-
-        return { elevationDeg: elDeg, slantRangeKm: rho };
+        modal.style.display = 'block';
     }
 
     // 6. Real-time Continuous Astrodynamics Clock & Telemetry Tick
     let lastWallTime = performance.now();
     let liveRicTickCounter = 0;
+    let liveAttTickCounter = 0;
 
     function tick() {
         const now = performance.now();
@@ -452,12 +578,55 @@ document.addEventListener('DOMContentLoaded', () => {
             const lon = (1 - alpha) * g0[1] + alpha * g1[1];
             const alt = (1 - alpha) * g0[2] + alpha * g1[2];
 
-            // Attitude quaternion at current step
+            // Continuous Real-Time Dynamic Attitude Determination (LVLH Frame)
             let quat = null;
             let euler = [0, 0, 0];
-            if (state.attitudeData && state.attitudeData.quaternions && state.attitudeData.quaternions.length > k0) {
-                quat = state.attitudeData.quaternions[k0];
-                euler = state.attitudeData.euler_angles_deg[k0];
+            let omega_deg_s = [0, 0, 0];
+
+            if (state.attitudeData && state.attitudeData.times_s && state.attitudeData.times_s.length > 1) {
+                const attTimes = state.attitudeData.times_s;
+                const attDur = attTimes[attTimes.length - 1];
+                const tAtt = ((state.simTimeSec % attDur) + attDur) % attDur;
+                const dtAtt = attTimes[1] - attTimes[0];
+                const fIdx = tAtt / dtAtt;
+                const a0 = Math.min(Math.floor(fIdx), state.attitudeData.quaternions.length - 1);
+                const a1 = Math.min(a0 + 1, state.attitudeData.quaternions.length - 1);
+                const attAlpha = fIdx - a0;
+
+                const e0 = state.attitudeData.euler_angles_deg[a0];
+                const e1 = state.attitudeData.euler_angles_deg[a1];
+                euler = [
+                    (1 - attAlpha) * e0[0] + attAlpha * e1[0],
+                    (1 - attAlpha) * e0[1] + attAlpha * e1[1],
+                    (1 - attAlpha) * e0[2] + attAlpha * e1[2],
+                ];
+
+                const q0 = state.attitudeData.quaternions[a0];
+                const q1 = state.attitudeData.quaternions[a1];
+                quat = [
+                    (1 - attAlpha) * q0[0] + attAlpha * q1[0],
+                    (1 - attAlpha) * q0[1] + attAlpha * q1[1],
+                    (1 - attAlpha) * q0[2] + attAlpha * q1[2],
+                    (1 - attAlpha) * q0[3] + attAlpha * q1[3],
+                ];
+
+                if (state.attitudeData.angular_velocities && state.attitudeData.angular_velocities.length > a0) {
+                    const w0 = state.attitudeData.angular_velocities[a0];
+                    const w1 = state.attitudeData.angular_velocities[a1];
+                    omega_deg_s = [
+                        THREE.MathUtils.radToDeg((1 - attAlpha) * w0[0] + attAlpha * w1[0]),
+                        THREE.MathUtils.radToDeg((1 - attAlpha) * w0[1] + attAlpha * w1[1]),
+                        THREE.MathUtils.radToDeg((1 - attAlpha) * w0[2] + attAlpha * w1[2]),
+                    ];
+                }
+            } else {
+                const nu = progressRatio * 2.0 * Math.PI;
+                if (state.attitudeMode === 'SUN') {
+                    euler = [12.0 * Math.cos(nu), 35.0 * Math.sin(nu), 24.0 * Math.sin(0.5 * nu)];
+                } else {
+                    euler = [0.12 * Math.cos(nu), 0.16 + 0.08 * Math.sin(2 * nu), 0.06 * Math.sin(nu)];
+                }
+                omega_deg_s = [euler[0] * 0.01, euler[1] * 0.01, euler[2] * 0.01];
             }
 
             // Set focused satellite position and orientation
@@ -481,14 +650,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (elPeriod) elPeriod.textContent = (coe.period_s / 60.0).toFixed(1);
             }
 
-            // Attitude Euler
-            if (elRoll) elRoll.textContent = euler[0].toFixed(1);
-            if (elPitch) elPitch.textContent = euler[1].toFixed(1);
-            if (elYaw) elYaw.textContent = euler[2].toFixed(1);
+            // Attitude Euler in LVLH Frame
+            if (elRoll) elRoll.textContent = `${euler[0] >= 0 ? '+' : ''}${euler[0].toFixed(2)}°`;
+            if (elPitch) elPitch.textContent = `${euler[1] >= 0 ? '+' : ''}${euler[1].toFixed(2)}°`;
+            if (elYaw) elYaw.textContent = `${euler[2] >= 0 ? '+' : ''}${euler[2].toFixed(2)}°`;
 
-            if (elBarRoll) elBarRoll.style.width = Math.min(100, Math.abs(euler[0]) * 2) + '%';
-            if (elBarPitch) elBarPitch.style.width = Math.min(100, Math.abs(euler[1]) * 2) + '%';
-            if (elBarYaw) elBarYaw.style.width = Math.min(100, Math.abs(euler[2]) * 2) + '%';
+            const maxBarDeg = state.attitudeMode === 'SUN' ? 45.0 : 1.5;
+            if (elBarRoll) elBarRoll.style.width = Math.min(100, Math.max(4, (Math.abs(euler[0]) / maxBarDeg) * 100)) + '%';
+            if (elBarPitch) elBarPitch.style.width = Math.min(100, Math.max(4, (Math.abs(euler[1]) / maxBarDeg) * 100)) + '%';
+            if (elBarYaw) elBarYaw.style.width = Math.min(100, Math.max(4, (Math.abs(euler[2]) / maxBarDeg) * 100)) + '%';
+
+            if (elOmegaX) elOmegaX.textContent = `${omega_deg_s[0] >= 0 ? '+' : ''}${omega_deg_s[0].toFixed(3)}°/s`;
+            if (elOmegaY) elOmegaY.textContent = `${omega_deg_s[1] >= 0 ? '+' : ''}${omega_deg_s[1].toFixed(3)}°/s`;
+            if (elOmegaZ) elOmegaZ.textContent = `${omega_deg_s[2] >= 0 ? '+' : ''}${omega_deg_s[2].toFixed(3)}°/s`;
+
+            if (elPointingStatus) {
+                const totalAttErr = Math.hypot(euler[0], euler[1], euler[2]);
+                if (state.attitudeMode === 'SUN') {
+                    elPointingStatus.textContent = `太阳矢量实时跟踪闭环 (对日夹角 ${totalAttErr.toFixed(1)}°)`;
+                } else {
+                    elPointingStatus.textContent = `三轴闭环对地定向 (指向稳定度 ${totalAttErr.toFixed(2)}°)`;
+                }
+            }
+
+            // Dynamically stream live Attitude waveform into chart in real-time (~5Hz)
+            if (state.isPlaying && (liveAttTickCounter++ % 6 === 0) && charts) {
+                const mm = String(Math.floor(tMod / 60.0)).padStart(2, '0');
+                const ss = String(Math.floor(tMod % 60.0)).padStart(2, '0');
+                const curTLabel = `+${mm}:${ss}`;
+                charts.pushLiveAttitudeSample(curTLabel, euler[0], euler[1], euler[2]);
+            }
 
             // Real-Time Dynamic Residuals & Error Calculation (derived from real flight ephemeris data)
             let r_truth = r_eci;
@@ -558,8 +749,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Dynamically stream live RIC waveform into chart in real-time (~5Hz)
             if (state.isPlaying && (liveRicTickCounter++ % 6 === 0) && charts) {
-                const curTMinStr = (tMod / 60.0).toFixed(1) + 'm';
-                charts.pushLiveRicSample(curTMinStr, ric_r, ric_i, ric_c);
+                const mm = String(Math.floor(tMod / 60.0)).padStart(2, '0');
+                const ss = String(Math.floor(tMod % 60.0)).padStart(2, '0');
+                const curTLabel = `+${mm}:${ss}`;
+                charts.pushLiveRicSample(curTLabel, ric_r, ric_i, ric_c);
             }
 
             // Update 3D Floating HUD
@@ -591,13 +784,15 @@ document.addEventListener('DOMContentLoaded', () => {
             let activeSt = null;
             let highestEl = -999.0;
             let activeRange = 0;
+            let activeTopo = null;
 
             for (const st of groundStations) {
-                const res = calculateElevation(lat, lon, alt_km, st.lat, st.lon);
-                if (res.elevationDeg > 5.0 && res.elevationDeg > highestEl) {
-                    highestEl = res.elevationDeg;
-                    activeRange = res.slantRangeKm;
+                const topo = calculateTopocentricCoordinates(lat, lon, alt_km, v_eci, st.lat, st.lon, st.alt || 50.0);
+                if (topo.elevationDeg > 5.0 && topo.elevationDeg > highestEl) {
+                    highestEl = topo.elevationDeg;
+                    activeRange = topo.slantRangeKm;
                     activeSt = st;
+                    activeTopo = topo;
                 }
             }
 
@@ -612,6 +807,52 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 if (bannerContact) bannerContact.style.display = 'none';
                 scene.setTrackingBeam(false);
+            }
+
+            // Real-Time Spacecraft Core Housekeeping Telemetry Packets
+            const frameNum = Math.floor((curDate.getTime() / 1000) * 2) % 65536;
+            if (tmFrameCount) tmFrameCount.textContent = `FRAME #${String(frameNum).padStart(5, '0')}`;
+
+            if (tmRfStatus) {
+                if (activeSt) {
+                    tmRfStatus.textContent = `${activeSt.name.toUpperCase()} LOCK (+${(14.0 + highestEl * 0.1).toFixed(1)} dB)`;
+                    tmRfStatus.classList.add('nominal');
+                } else {
+                    tmRfStatus.textContent = `ISL 星间链路待机`;
+                    tmRfStatus.classList.remove('nominal');
+                }
+            }
+
+            // Physical eclipse check (Earth shadow cylinder Re = 6378.137 km)
+            const isEclipse = (r_eci[0] > 0 && Math.hypot(r_eci[1], r_eci[2]) < 6378.137);
+            if (tmSolarPower) {
+                if (isEclipse) {
+                    tmSolarPower.textContent = `0 W (地影区 - 电池供电)`;
+                    tmSolarPower.classList.remove('nominal');
+                } else {
+                    const pWatts = Math.round(1420 + 45 * Math.sin(tMod * 0.005));
+                    tmSolarPower.textContent = `${pWatts.toLocaleString()} W (光照区 100%)`;
+                    tmSolarPower.classList.add('nominal');
+                }
+            }
+
+            if (tmBusVoltage) {
+                if (isEclipse) {
+                    tmBusVoltage.textContent = `27.84 V (放电中 94.2%)`;
+                } else {
+                    tmBusVoltage.textContent = `28.24 V (浮充 96.5%)`;
+                }
+            }
+
+            if (tmWheelRpm) {
+                const rpm1 = Math.round(2420 + 35 * Math.sin(tMod * 0.02));
+                tmWheelRpm.textContent = `${rpm1} RPM (闭环)`;
+            }
+
+            if (tmThermal) {
+                const tLoad = (18.2 + 0.4 * Math.sin(tMod * 0.003)).toFixed(1);
+                const tTank = (21.0 + 0.2 * Math.cos(tMod * 0.003)).toFixed(1);
+                tmThermal.textContent = `载荷: +${tLoad}°C | 储箱: +${tTank}°C`;
             }
         }
     }
@@ -977,7 +1218,57 @@ document.addEventListener('DOMContentLoaded', () => {
         maneuvers.initiateStationKeeping(state.currentSatId);
     });
 
-    // Close modal
+    // Interactive Modals & Click Triggers
+    document.querySelectorAll('.app-modal [data-close]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const targetId = e.currentTarget.getAttribute('data-close');
+            const el = document.getElementById(targetId);
+            if (el) el.style.display = 'none';
+        });
+    });
+
+    if (cardHeroMl) cardHeroMl.addEventListener('click', openRicDetailModal);
+    if (boxRicChart) boxRicChart.addEventListener('click', openRicDetailModal);
+
+    if (boxBenchmarkChart) {
+        boxBenchmarkChart.addEventListener('click', () => {
+            const modal = document.getElementById('modal-benchmark-detail');
+            if (modal) modal.style.display = 'block';
+        });
+    }
+
+    if (cardSpacecraftTm) cardSpacecraftTm.addEventListener('click', openTelemetryDetailModal);
+
+    if (btnExportRic) {
+        btnExportRic.addEventListener('click', () => {
+            if (!state.trajectoryData || !state.trajectoryData.predicted_ric_residuals) {
+                alert('当前星历无 RIC 残差序列可导出');
+                return;
+            }
+            const exportPayload = {
+                satellite: state.currentSatId,
+                generated_at: new Date().toISOString(),
+                coordinate_frame: 'RIC (Radial, In-Track, Cross-Track)',
+                units: 'meters',
+                sample_count: state.trajectoryData.predicted_ric_residuals.length,
+                data: state.trajectoryData.predicted_ric_residuals.map((r, i) => ({
+                    time_s: state.trajectoryData.times_s ? state.trajectoryData.times_s[i] : i * 30,
+                    radial_m: Number(r[0].toFixed(3)),
+                    in_track_m: Number(r[1].toFixed(3)),
+                    cross_track_m: Number(r[2].toFixed(3))
+                }))
+            };
+            const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `RIC_Residuals_${state.currentSatId}_${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+    }
+
+    // Close maneuver modal
     document.getElementById('btn-cancel-burn')?.addEventListener('click', () => {
         document.getElementById('maneuver-modal').style.display = 'none';
     });

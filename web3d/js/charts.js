@@ -221,19 +221,47 @@ class DashboardCharts {
         this.ricChart.update();
     }
 
+    resetAttitudeStreaming() {
+        if (!this.attChart) return;
+        this.attChart.data.labels = [];
+        this.attChart.data.datasets[0].data = [];
+        this.attChart.data.datasets[1].data = [];
+        this.attChart.data.datasets[2].data = [];
+        this.attChart.update('none');
+    }
+
+    pushLiveAttitudeSample(timeLabel, roll, pitch, yaw) {
+        if (!this.attChart) return;
+        const d = this.attChart.data;
+        const maxLivePoints = 32;
+
+        d.labels.push(timeLabel);
+        d.datasets[0].data.push(roll);
+        d.datasets[1].data.push(pitch);
+        d.datasets[2].data.push(yaw);
+
+        if (d.labels.length > maxLivePoints) {
+            d.labels.shift();
+            d.datasets[0].data.shift();
+            d.datasets[1].data.shift();
+            d.datasets[2].data.shift();
+        }
+        this.attChart.update('none');
+    }
+
     updateAttitudeChart(times_s, euler_deg) {
         if (!this.attChart || !euler_deg || euler_deg.length === 0) return;
 
-        const maxPoints = 50;
-        const step = Math.max(1, Math.floor(euler_deg.length / maxPoints));
-
+        const initPoints = Math.min(25, euler_deg.length);
         const labels = [];
         const roll = [];
         const pitch = [];
         const yaw = [];
 
-        for (let i = 0; i < euler_deg.length; i += step) {
-            labels.push(Math.round(times_s[i]) + 's');
+        for (let i = 0; i < initPoints; i++) {
+            const mm = String(Math.floor(times_s[i] / 60)).padStart(2, '0');
+            const ss = String(Math.floor(times_s[i] % 60)).padStart(2, '0');
+            labels.push(`+${mm}:${ss}`);
             roll.push(euler_deg[i][0]);
             pitch.push(euler_deg[i][1]);
             yaw.push(euler_deg[i][2]);

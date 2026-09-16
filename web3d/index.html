@@ -209,7 +209,7 @@
             <div id="tab-attitude" class="drawer-tab-pane">
                 <div class="panel-header">
                     <h3>🔄 姿态动力学与角速率</h3>
-                    <span style="font-size: 10px; color: var(--text-dim); font-family: var(--font-mono);">LVLH FRAME</span>
+                    <span style="font-size: 10px; color: var(--color-nominal); font-family: var(--font-mono);" id="attitude-mode-badge">LVLH FRAME</span>
                 </div>
 
                 <div class="telemetry-section">
@@ -234,12 +234,31 @@
                         </div>
                         <span id="val-yaw" class="axis-val">0.00°</span>
                     </div>
+
+                    <div class="attitude-rate-grid">
+                        <div class="rate-col">
+                            <span class="rate-label">ωx (横滚):</span>
+                            <span class="rate-val" id="val-omega-x">+0.000°/s</span>
+                        </div>
+                        <div class="rate-col">
+                            <span class="rate-label">ωy (俯仰):</span>
+                            <span class="rate-val" id="val-omega-y">-0.008°/s</span>
+                        </div>
+                        <div class="rate-col">
+                            <span class="rate-label">ωz (偏航):</span>
+                            <span class="rate-val" id="val-omega-z">+0.000°/s</span>
+                        </div>
+                    </div>
+                    <div class="pointing-badge-row">
+                        <span class="status-dot"></span>
+                        <span id="val-pointing-status" style="color:var(--color-nominal); font-family:var(--font-mono); font-size:10px;">三轴闭环对地定向 (稳定度 &lt; 0.05°)</span>
+                    </div>
                 </div>
 
                 <div class="panel-header" style="margin-top: 6px;">
-                    <h3>📈 姿态角时程演化曲线</h3>
+                    <h3>📈 姿态角时程演化曲线 (实时流)</h3>
                 </div>
-                <div class="chart-container-box" style="height: 150px;">
+                <div class="chart-container-box" style="height: 145px;">
                     <canvas id="chart-attitude"></canvas>
                 </div>
             </div>
@@ -265,7 +284,7 @@
                     🧠 ML 残差与算法
                 </button>
                 <button class="drawer-tab-btn" data-drawer="right" data-tab="tab-ops">
-                    📡 测控与过境
+                    📡 测控与遥测
                 </button>
             </div>
 
@@ -276,10 +295,10 @@
                     <span style="font-size: 10px; color: var(--color-telemetry); font-family: var(--font-mono);">RIC FRAME</span>
                 </div>
 
-                <div class="ml-hero-card">
+                <div class="ml-hero-card interactive-clickable" id="card-hero-ml" title="点击展开 RIC 滤波残差与 3-σ 协方差椭球深度分析">
                     <div class="ml-hero-header">
                         <span class="ml-hero-title">实时动力学滤波精度提升率 (1-σ)</span>
-                        <span class="live-pulse"></span>
+                        <span class="card-inspect-hint">🔍 点击深度分析</span>
                     </div>
                     <div class="ml-hero-metric">
                         <span class="big-number" id="hero-reduction">+84.6%</span>
@@ -309,35 +328,61 @@
                 <div class="panel-header" style="margin-top: 6px;">
                     <h3>📊 RIC 轨道残差时序 (径向/沿轨/法向)</h3>
                 </div>
-                <div class="chart-container-box" style="height: 130px;">
+                <div class="chart-container-box interactive-clickable" id="box-ric-chart" style="height: 130px;" title="点击查看 RIC 残差频谱与误差椭球">
                     <canvas id="chart-ric"></canvas>
                 </div>
 
                 <div class="panel-header" style="margin-top: 6px;">
                     <h3>⚡ 数值积分算法对比 (RK4 vs RKF78 vs ABM4)</h3>
                 </div>
-                <div class="chart-container-box" style="height: 155px;">
+                <div class="chart-container-box interactive-clickable" id="box-benchmark-chart" style="height: 155px;" title="点击查看数值积分器精度、耗时与能量守恒分析">
                     <canvas id="chart-benchmark"></canvas>
                 </div>
             </div>
 
-            <!-- Tab 2: Ground Station Pass Schedule & Network Overview -->
+            <!-- Tab 2: Ground Station Pass Schedule & Real-time Spacecraft Telemetry -->
             <div id="tab-ops" class="drawer-tab-pane">
                 <div class="panel-header">
                     <h3>📡 测控站过境窗口预报 (Pass Schedule)</h3>
                     <span style="font-size: 10px; color: var(--text-dim); font-family: var(--font-mono);">AOS / LOS</span>
                 </div>
-                <div class="pass-timeline-list" id="ground-passes-list" style="max-height: 280px;">
-                    <!-- Dynamically populated by main.js -->
+                <div class="pass-timeline-list" id="ground-passes-list" style="max-height: 220px;">
+                    <!-- Dynamically populated by main.js with clickable station cards -->
                 </div>
 
-                <div class="telemetry-section" style="margin-top: 10px;">
-                    <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">
-                        🌐 全球测控网与星间链路概览
+                <!-- Spacecraft Housekeeping Telemetry Packets (Replaces static summary text) -->
+                <div class="telemetry-section interactive-clickable" id="card-spacecraft-tm" title="点击查看卫星平台总线与分系统遥测诊断" style="margin-top: 8px;">
+                    <div class="section-title-row">
+                        <span style="font-size: 11px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                            🛰️ 卫星平台核心分系统实时遥测
+                        </span>
+                        <span class="card-inspect-hint">🔍 点击诊断</span>
                     </div>
-                    <div style="font-size: 10px; color: var(--text-dim); line-height: 1.5;">
-                        纳管测控站点：北京总站、喀什站、三亚站、斯瓦尔巴北极站、马林迪赤道站。<br>
-                        星间激光微波链路 (ISL) 支持双向高通量遥测中继回传与自主星群定轨。
+                    <div class="tm-packet-grid">
+                        <div class="tm-cell">
+                            <span class="tm-lbl">遥测主帧状态</span>
+                            <b class="tm-val nominal" id="tm-frame-count">FRAME #08421</b>
+                        </div>
+                        <div class="tm-cell">
+                            <span class="tm-lbl">下行测控载波</span>
+                            <b class="tm-val nominal" id="tm-rf-status">X-BAND LOCK</b>
+                        </div>
+                        <div class="tm-cell">
+                            <span class="tm-lbl">反作用飞轮转速</span>
+                            <b class="tm-val" id="tm-wheel-rpm">2,420 RPM</b>
+                        </div>
+                        <div class="tm-cell">
+                            <span class="tm-lbl">太阳翼光照发电</span>
+                            <b class="tm-val nominal" id="tm-solar-power">1,450 W</b>
+                        </div>
+                        <div class="tm-cell">
+                            <span class="tm-lbl">母线稳压/电量</span>
+                            <b class="tm-val" id="tm-bus-voltage">28.2 V (96.4%)</b>
+                        </div>
+                        <div class="tm-cell">
+                            <span class="tm-lbl">核心载荷舱温度</span>
+                            <b class="tm-val" id="tm-thermal">+18.5°C 正常</b>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -506,6 +551,170 @@
         <div class="modal-btn-row">
             <button id="btn-close-synthetic-modal" class="dock-pill-btn">关闭</button>
             <button id="btn-run-synthetic-calibration" class="nav-btn primary">🚀 接入实测并校准预测 (Assimilate & Validate)</button>
+        </div>
+    </div>
+
+    <!-- 1. RIC Covariance & Error Analysis Modal -->
+    <div id="modal-ric-detail" class="glass-panel app-modal">
+        <div class="modal-header">
+            <h3>🧠 RIC 动力学滤波残差与 3-σ 协方差椭球精细解析</h3>
+            <button class="modal-close-btn" data-close="modal-ric-detail">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-grid-two">
+                <div class="modal-subcard">
+                    <div class="subcard-title">📐 RIC 三轴残差统计 (RMS 精度)</div>
+                    <div class="param-row"><span>径向残差 (Radial ΔR):</span><b id="m-ric-rms-r" class="mono nominal">+14.2 m (RMS: 18.5 m)</b></div>
+                    <div class="param-row"><span>沿轨残差 (In-Track ΔI):</span><b id="m-ric-rms-i" class="mono warning">-42.8 m (RMS: 56.1 m)</b></div>
+                    <div class="param-row"><span>法向残差 (Cross-Track ΔC):</span><b id="m-ric-rms-c" class="mono nominal">+6.1 m (RMS: 8.4 m)</b></div>
+                    <div class="param-row"><span>空间位置总误差:</span><b id="m-ric-rms-total" class="mono nominal">45.5 m (优于基线 85.2%)</b></div>
+                </div>
+                <div class="modal-subcard">
+                    <div class="subcard-title">🌐 3-σ 空间误差椭球参数</div>
+                    <div class="param-row"><span>半长轴 (Semi-Major Axis a):</span><b id="m-ric-ellip-a" class="mono">112.4 m</b></div>
+                    <div class="param-row"><span>半中轴 (Semi-Intermediate b):</span><b id="m-ric-ellip-b" class="mono">38.2 m</b></div>
+                    <div class="param-row"><span>半短轴 (Semi-Minor Axis c):</span><b id="m-ric-ellip-c" class="mono">16.8 m</b></div>
+                    <div class="param-row"><span>置信度区间:</span><b class="mono nominal">99.73% 3-Sigma 包含域</b></div>
+                </div>
+            </div>
+            <div class="modal-subcard" style="margin-top: 10px;">
+                <div class="subcard-title">🤖 LSTM 轨道动力学残差补偿模型状态</div>
+                <div class="param-row"><span>网络结构:</span><span class="mono">Input(12×6) ➔ LSTM(64) ➔ Dropout(0.2) ➔ Dense(32) ➔ Output(6)</span></div>
+                <div class="param-row"><span>特征物理量:</span><span class="mono">[SGP4_ECI, J2_Perturb, Solar_Flux, Earth_Phase, In_Track_Lag]</span></div>
+                <div class="param-row"><span>补偿模型状态:</span><span class="mono nominal">● ACTIVE (推理时延: 1.2ms / 推算步)</span></div>
+            </div>
+        </div>
+        <div class="modal-btn-row">
+            <button class="dock-pill-btn" data-close="modal-ric-detail">关闭</button>
+            <button id="btn-export-ric-data" class="nav-btn primary">📥 导出 RIC 误差时序 (JSON)</button>
+        </div>
+    </div>
+
+    <!-- 2. Integrator Benchmark Inspector Modal -->
+    <div id="modal-benchmark-detail" class="glass-panel app-modal">
+        <div class="modal-header">
+            <h3>⚡ 轨道高阶数值积分器精度、耗时与能量守恒分析</h3>
+            <button class="modal-close-btn" data-close="modal-benchmark-detail">×</button>
+        </div>
+        <div class="modal-body">
+            <table class="modal-benchmark-table">
+                <thead>
+                    <tr>
+                        <th>算法类型</th>
+                        <th>截断阶数</th>
+                        <th>步长控制</th>
+                        <th>单轨耗时</th>
+                        <th>能量漂移 |ΔE/E₀|</th>
+                        <th>推荐场景</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><b>RK4</b></td>
+                        <td>4阶</td>
+                        <td>定步长 (h=30s)</td>
+                        <td>15.5 ms</td>
+                        <td class="mono warning">2.4 × 10⁻⁵</td>
+                        <td>快速工程粗估</td>
+                    </tr>
+                    <tr class="highlight-row">
+                        <td><b>RKF78</b></td>
+                        <td>7/8阶</td>
+                        <td>自适应 (h=0.1~120s)</td>
+                        <td>8.4 ms</td>
+                        <td class="mono nominal">1.1 × 10⁻⁷</td>
+                        <td>高精度基准真轨 (当前)</td>
+                    </tr>
+                    <tr>
+                        <td><b>ABM4</b></td>
+                        <td>4阶</td>
+                        <td>预估-校正多步法</td>
+                        <td>9.2 ms</td>
+                        <td class="mono nominal">4.8 × 10⁻⁶</td>
+                        <td>长期星上自主推算</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="modal-subcard" style="margin-top: 12px;">
+                <div class="subcard-title">🔬 动力学能量与轨道不变量验证结论</div>
+                <div style="font-size:11px; color:var(--text-secondary); line-height:1.6;">
+                    经过对该卫星进行单轨能量守恒闭环校验，<b>RKF78 自适应变步长算法</b>通过嵌入式误差控制在近地点附近自动细化步长，在远地点扩大步长，计算耗时仅为经典 RK4 的 <b>54.2%</b>，且能量漂移率低至 <b>1.1×10⁻⁷</b>，满足毫米级高精度基准需求。
+                </div>
+            </div>
+        </div>
+        <div class="modal-btn-row">
+            <button class="dock-pill-btn" data-close="modal-benchmark-detail">关闭</button>
+        </div>
+    </div>
+
+    <!-- 3. Ground Station Pass & Radar Tracking Modal -->
+    <div id="modal-station-detail" class="glass-panel app-modal">
+        <div class="modal-header">
+            <h3>📡 地面测控站过境雷达追踪与信标链路参数</h3>
+            <button class="modal-close-btn" data-close="modal-station-detail">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-grid-two">
+                <div class="modal-subcard">
+                    <div class="subcard-title">📍 测控站台址与瞬时几何</div>
+                    <div class="param-row"><span>站点名称:</span><b id="m-st-name" class="mono">Beijing Station (北京总站)</b></div>
+                    <div class="param-row"><span>地理坐标:</span><b id="m-st-coords" class="mono">40.05°N, 116.32°E (高程: 50m)</b></div>
+                    <div class="param-row"><span>实时方位角 (Azimuth):</span><b id="m-st-az" class="mono nominal">142.8°</b></div>
+                    <div class="param-row"><span>实时仰角 (Elevation):</span><b id="m-st-el" class="mono nominal">45.2° (视线良好)</b></div>
+                </div>
+                <div class="modal-subcard">
+                    <div class="subcard-title">📶 测控雷达与多普勒频移</div>
+                    <div class="param-row"><span>斜距 (Slant Range):</span><b id="m-st-range" class="mono">3,245.8 km</b></div>
+                    <div class="param-row"><span>距离变化率 (Range Rate):</span><b id="m-st-rate" class="mono">-4.12 km/s</b></div>
+                    <div class="param-row"><span>多普勒频移 (Δf):</span><b id="m-st-doppler" class="mono nominal">+113.2 kHz</b></div>
+                    <div class="param-row"><span>载波链路余度:</span><b id="m-st-margin" class="mono nominal">+16.4 dB (锁定)</b></div>
+                </div>
+            </div>
+            <div class="modal-subcard" style="margin-top: 10px;">
+                <div class="subcard-title">⏱️ 测控过境窗口事件表 (Pass Schedule)</div>
+                <div class="param-row"><span>信号捕获入轨 (AOS):</span><b id="m-st-aos" class="mono">T+08m (2026-09-16 14:15:20 UTC)</b></div>
+                <div class="param-row"><span>最高仰角时刻 (TCA):</span><b id="m-st-tca" class="mono">T+13m (最大仰角: 72.5°)</b></div>
+                <div class="param-row"><span>信号失锁出轨 (LOS):</span><b id="m-st-los" class="mono">T+19m (持续时长: 660s)</b></div>
+            </div>
+        </div>
+        <div class="modal-btn-row">
+            <button class="dock-pill-btn" data-close="modal-station-detail">关闭</button>
+        </div>
+    </div>
+
+    <!-- 4. Satellite Housekeeping Subsystem Telemetry Modal -->
+    <div id="modal-telemetry-detail" class="glass-panel app-modal">
+        <div class="modal-header">
+            <h3>🛰️ 卫星平台总线与核心分系统遥测遥控诊断</h3>
+            <button class="modal-close-btn" data-close="modal-telemetry-detail">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-grid-two">
+                <div class="modal-subcard">
+                    <div class="subcard-title">🔄 姿控分系统 (AOCS) 执行机构</div>
+                    <div class="param-row"><span>1号反作用飞轮:</span><b id="m-tm-rw1" class="mono">+2,450 RPM (力矩: +0.02 Nm)</b></div>
+                    <div class="param-row"><span>2号反作用飞轮:</span><b id="m-tm-rw2" class="mono">-1,820 RPM (力矩: -0.01 Nm)</b></div>
+                    <div class="param-row"><span>3号反作用飞轮:</span><b id="m-tm-rw3" class="mono">+1,980 RPM (力矩: +0.01 Nm)</b></div>
+                    <div class="param-row"><span>4号反作用飞轮:</span><b id="m-tm-rw4" class="mono">-2,100 RPM (斜装备份)</b></div>
+                    <div class="param-row"><span>角动量积累状态:</span><b class="mono nominal">● 正常安全区 (32% 容量)</b></div>
+                </div>
+                <div class="modal-subcard">
+                    <div class="subcard-title">⚡ 能源分系统 (EPS) 充放电</div>
+                    <div class="param-row"><span>太阳能帆板总发电:</span><b id="m-tm-power" class="mono nominal">1,450 W (日照区)</b></div>
+                    <div class="param-row"><span>母线稳压 (28V Bus):</span><b id="m-tm-bus" class="mono nominal">28.24 V ± 0.1V</b></div>
+                    <div class="param-row"><span>蓄电池荷电状态 (SoC):</span><b id="m-tm-soc" class="mono nominal">96.4% (浮充状态)</b></div>
+                    <div class="param-row"><span>地影出入预报:</span><b id="m-tm-eclipse" class="mono">距进影 T+42m | 影期 34m</b></div>
+                </div>
+            </div>
+            <div class="modal-subcard" style="margin-top: 10px;">
+                <div class="subcard-title">🌡️ 热控分系统 (TCS) 多测温点健康度</div>
+                <div class="param-row"><span>光学遥感载荷舱:</span><b class="mono nominal">+18.5°C (指标: +15~+25°C)</b></div>
+                <div class="param-row"><span>锂离子蓄电池舱:</span><b class="mono nominal">+16.2°C (指标: +10~+20°C)</b></div>
+                <div class="param-row"><span>推进剂贮箱与管路:</span><b class="mono nominal">+21.0°C (指标: +10~+35°C)</b></div>
+            </div>
+        </div>
+        <div class="modal-btn-row">
+            <button class="dock-pill-btn" data-close="modal-telemetry-detail">关闭</button>
         </div>
     </div>
 

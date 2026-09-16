@@ -142,13 +142,25 @@ class AttitudeSimulator:
         """
         n_steps = len(times_s)
         if q0 is None:
-            q0 = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+            if mode.upper() == "NADIR" and len(orbit_states_eci) > 0:
+                q0 = self.compute_nadir_target_quat(orbit_states_eci[0, 0:3], orbit_states_eci[0, 3:6])
+                r0_norm = np.linalg.norm(orbit_states_eci[0, 0:3])
+                omega_orb = math.sqrt(MU_EARTH / (r0_norm**3)) if r0_norm > 1e-3 else 0.001
+                if omega0 is None:
+                    omega0 = np.array([0.0, -omega_orb, 0.0], dtype=np.float64)
+            elif mode.upper() == "SUN" and r_sun_eci is not None:
+                q0 = self.compute_sun_target_quat(r_sun_eci)
+                if omega0 is None:
+                    omega0 = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+            else:
+                q0 = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
         if omega0 is None:
-            omega0 = np.array([0.001, -0.002, 0.001], dtype=np.float64)
+            omega0 = np.array([0.0001, -0.001, 0.0001], dtype=np.float64)
 
         q_arr = np.zeros((n_steps, 4), dtype=np.float64)
         omega_arr = np.zeros((n_steps, 3), dtype=np.float64)
         euler_arr = np.zeros((n_steps, 3), dtype=np.float64)
+        euler_lvlh_arr = np.zeros((n_steps, 3), dtype=np.float64)
         torques_arr = np.zeros((n_steps, 3), dtype=np.float64)
 
         q_curr = quat_normalize(q0.copy())
@@ -158,6 +170,27 @@ class AttitudeSimulator:
             q_arr[i] = q_curr
             omega_arr[i] = omega_curr
             euler_arr[i] = quat_to_euler(q_curr)
+
+            # Compute LVLH frame relative Euler angles (Roll, Pitch, Yaw in LVLH)
+            r_i = orbit_states_eci[i, 0:3]
+            v_i = orbit_states_eci[i, 3:6]
+            r_norm = np.linalg.norm(r_i)
+            h_vec = np.cross(r_i, v_i)
+            h_norm = np.linalg.norm(h_vec)
+
+            if r_norm > 1e-3 and h_norm > 1e-3:
+                z_l = -r_i / r_norm
+                y_l = -h_vec / h_norm
+                x_l = np.cross(y_l, z_l)
+                R_li = np.vstack([x_l, y_l, z_l])
+                R_bi = quat_to_dcm(q_curr)
+                R_bl = R_bi @ R_li.T
+                roll_lvlh = math.degrees(math.atan2(R_bl[1, 2], R_bl[2, 2]))
+                pitch_lvlh = math.degrees(math.asin(-np.clip(R_bl[0, 2], -1.0, 1.0)))
+                yaw_lvlh = math.degrees(math.atan2(R_bl[0, 1], R_bl[0, 0]))
+                euler_lvlh_arr[i] = [roll_lvlh, pitch_lvlh, yaw_lvlh]
+            else:
+                euler_lvlh_arr[i] = [0.0, 0.0, 0.0]
 
             if i == n_steps - 1:
                 break
@@ -212,7 +245,9 @@ class AttitudeSimulator:
             "times_s": times_s,
             "quaternions": q_arr,
             "angular_velocities": omega_arr,
-            "euler_angles_deg": euler_arr,
+            "euler_angles_deg": euler_lvlh_arr,
+            "euler_angles_lvlh_deg": euler_lvlh_arr,
+            "euler_angles_eci_deg": euler_arr,
             "control_torques": torques_arr,
             "mode": mode,
         }

@@ -391,6 +391,8 @@ def simulate_attitude():
         "quaternions": att_res["quaternions"].tolist(),
         "angular_velocities": att_res["angular_velocities"].tolist(),
         "euler_angles_deg": att_res["euler_angles_deg"].tolist(),
+        "euler_angles_lvlh_deg": att_res["euler_angles_lvlh_deg"].tolist(),
+        "euler_angles_eci_deg": att_res["euler_angles_eci_deg"].tolist(),
         "control_torques": att_res["control_torques"].tolist(),
     })
 
