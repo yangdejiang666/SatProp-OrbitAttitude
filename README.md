@@ -131,6 +131,8 @@ py -3.11 tests/test_propagators.py
 - 📘 [理论基础与数学模型推导手册](docs/THEORETICAL_FOUNDATIONS.md)
 - 📊 [算法横向基准与实验对比报告](docs/BENCHMARK_REPORT.md)
 - 🌐 [RESTful API 接口参考规范](docs/API_REFERENCE.md)
+- 🛰️ [真实遥测遥感数据接入指南](docs/REAL_DATA_INTEGRATION_GUIDE.md)
+- 🌿 [开发者 Git & GitHub 协作规范手册](docs/GIT_WORKFLOW_GUIDE.md)
 - 🤝 [项目交接与团队工程对接指南](docs/HANDOVER_GUIDE.md)
 
 ---
