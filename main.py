@@ -261,8 +261,22 @@ def main():
 
     args = parser.parse_args()
     if not args.command:
-        parser.print_help()
-        sys.exit(0)
+        print("\n" + "=" * 75)
+        print("🛰️  SatProp-OrbitAttitude: 航天器高精轨道动力学预测与姿态推演平台")
+        print("===========================================================================")
+        print("💡 欢迎使用！检测到直接运行 main.py (无参数)，系统默认一键启动 3D WebGL 测控平台")
+        print("🌐 本地服务访问地址: http://127.0.0.1:8080")
+        print("✨ 提示: 若需使用其他科研计算功能，可传入相应子命令:")
+        print("   - python main.py server      : 启动 3D WebGL 仿真平台与后端 API")
+        print("   - python main.py pipeline    : 执行全流程轨道外推与 LSTM 残差修正")
+        print("   - python main.py benchmark   : 运行 RK4 vs RKF78 vs ABM4 数值积分器对比评测")
+        print("   - python main.py train       : 离线训练 ML 轨道残差时序网络")
+        print("   - python main.py ops         : 解算地面站过境可见窗口与星间激光链路拓扑")
+        print("   - python main.py attitude    : 仿真三轴卫星姿态动力学与飞轮控制")
+        print("   - python main.py test        : 运行全套自动化单元测试与算法验证")
+        print("===========================================================================\n")
+        cmd_server(args)
+        return
 
     handlers = {
         "server": cmd_server,

@@ -83,34 +83,45 @@ SatProp-OrbitAttitude/
 
 ---
 
-## 🚀 快速启动
+## 🚀 快速启动与运行指南
 
-### 1. 环境准备
-推荐使用 Python 3.11+：
+### 1. 从 GitHub 获取最新完整项目代码
+确保拉取默认主分支 `main`：
 ```bash
-git clone https://github.com/your-username/SatProp-OrbitAttitude.git
+git clone https://github.com/yangdejiang666/SatProp-OrbitAttitude.git
 cd SatProp-OrbitAttitude
-py -3.11 -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-### 2. 启动服务与 3D 控制台
-执行根目录下的一键启动脚本：
-```bash
-py -3.11 run_server.py
-```
-终端将输出：
-```text
-======================================================================
-🚀 SatProp-OrbitAttitude: 卫星轨道动力学预测与姿态推演平台
-📡 服务启动中: http://127.0.0.1:8080
-✨ 按 Ctrl+C 停止服务
-======================================================================
-```
-打开浏览器访问 **`http://127.0.0.1:8080`** 即可体验高画质深空轨道预测与姿态控制平台！
+> 💡 **IDE 正确打开方式（避免误判代码为空）**：
+> - 请在 PyCharm / VS Code / Cursor 中选择 **「File -> Open... (打开已有项目文件夹)」**，直接选择刚才克隆的 `SatProp-OrbitAttitude` 根目录。
+> - **切勿**点击「New Project (新建项目)」，因为 IDE 会自动生成一个初始空模板覆盖。
+> - 确保项目分支处于 **`main`**（可通过 `git status` 或 IDE 右下角查看）。
 
-### 3. 运行集成测试套件
+### 2. 安装环境依赖
+推荐使用 Python 3.10 或 3.11+：
 ```bash
-py -3.11 tests/test_propagators.py
+pip install -r requirements.txt
+```
+
+### 3. 一键启动 3D WebGL 态势感知测控平台 (三种方式任选其一)
+
+- **方式 A (Windows 双击最简启动)**：
+  直接双击根目录下的 **`start_platform.bat`**，系统将自动启动后台预测服务并在浏览器弹出平台大屏。
+- **方式 B (主程序直接启动)**：
+  ```bash
+  python main.py
+  ```
+  *(注：`main.py` 默认一键拉起 3D WebGL 测控平台与后端 API；亦可通过 `python main.py --help` 查看全流程子命令)*
+- **方式 C (独立服务器脚本启动)**：
+  ```bash
+  python run_server.py
+  ```
+
+启动后在浏览器打开 **`http://127.0.0.1:8080`** 即可直接体验全功能卫星数字孪生测控大屏！
+
+### 4. 运行全套算法与单元测试
+```bash
+python main.py test
 ```
 
 ---
