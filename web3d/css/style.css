@@ -94,211 +94,122 @@ body {
 }
 
 /* ==========================================================================
-   Top Mission Control Navigation Bar
+   Top Mission Control Navigation Bar (Symmetrical Card Modules, 34px Height)
    ========================================================================== */
 #top-navbar {
   position: absolute;
-  top: 10px;
-  left: 14px;
-  right: 14px;
-  height: 52px;
+  top: 8px;
+  left: 12px;
+  right: 12px;
+  height: 48px;
   z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  background: rgba(15, 23, 42, 0.96);
-  border: 1px solid var(--border-card);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  gap: 8px;
+  padding: 0 8px;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
 }
 
-.brand-section {
-  display: flex;
+.top-nav-card {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
+  height: 34px;
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+  padding: 0 6px;
+  gap: 5px;
+  box-sizing: border-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.top-card-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  padding: 0 3px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.brand-card {
+  background: rgba(15, 23, 42, 0.7);
+  border-color: rgba(56, 189, 248, 0.25);
+  padding: 0 8px;
+  gap: 8px;
 }
 
 .brand-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-xs);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .brand-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   fill: var(--color-telemetry);
 }
 
-.brand-title {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.system-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: var(--radius-xs);
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--color-nominal);
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--font-mono);
-}
-
-.live-pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-nominal);
-  box-shadow: 0 0 6px var(--color-nominal);
-}
-
-.nav-controls {
+.brand-title-wrap {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-/* ==========================================================================
-   Ported UI Component 1: Segmented Control Switcher
-   ========================================================================== */
-.layer-toggles-bar {
-  display: inline-flex;
-  align-items: center;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-sm);
-  padding: 2px;
-  gap: 2px;
-}
-
-.layer-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-secondary);
-  padding: 4px 9px;
-  border-radius: var(--radius-xs);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: all 0.15s ease;
-  font-family: var(--font-sans);
-}
-
-.layer-btn .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.layer-btn:hover {
+.brand-text {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.04);
+  white-space: nowrap;
 }
 
-.layer-btn.active-sgp4 {
-  background: rgba(249, 115, 22, 0.15);
-  border-color: rgba(249, 115, 22, 0.4);
-  color: #fdba74;
-}
-
-.layer-btn.active-truth {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.4);
-  color: #6ee7b7;
-}
-
-.layer-btn.active-hybrid {
-  background: rgba(168, 85, 247, 0.15);
-  border-color: rgba(168, 85, 247, 0.4);
-  color: #d8b4fe;
-}
-
-.layer-btn.active-calibrated {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.4);
-  color: #67e8f9;
-}
-
-/* ==========================================================================
-   Ported UI Component 2: Tactile Workstation Push-Buttons
-   ========================================================================== */
-.nav-btn, .btn-workstation {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-card);
-  color: var(--text-primary);
-  padding: 5px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
+.system-badge {
+  font-size: 9.5px;
   font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--color-nominal);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  display: flex;
   align-items: center;
-  gap: 6px;
-  box-shadow: var(--shadow-btn);
-  transition: all 0.15s ease;
-  font-family: var(--font-sans);
+  gap: 4px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
-.nav-btn:hover, .btn-workstation:hover {
-  background: var(--bg-surface-hover);
-  border-color: var(--border-strong);
-  color: #ffffff;
-}
-
-.nav-btn:active, .btn-workstation:active {
-  transform: translateY(1px);
-  background: var(--bg-surface-active);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
-}
-
-.nav-btn.primary {
-  background: #1d4ed8;
-  border-color: #2563eb;
-  color: #ffffff;
-}
-.nav-btn.primary:hover {
-  background: #2563eb;
-  border-color: #3b82f6;
-}
-
-.nav-btn.gold {
-  background: rgba(245, 158, 11, 0.18);
-  border-color: rgba(245, 158, 11, 0.45);
-  color: #fde68a;
-}
-.nav-btn.gold:hover {
-  background: rgba(245, 158, 11, 0.28);
-  border-color: #f59e0b;
+.live-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-nominal);
+  box-shadow: 0 0 5px var(--color-nominal);
 }
 
 /* ==========================================================================
-   Ported UI Component 3: Workstation Select Dropdowns
+   Standardized Card Controls (Height: 28px, Matching Font & Radii)
    ========================================================================== */
 .select-control {
   background: var(--bg-surface);
   border: 1px solid var(--border-card);
   color: var(--text-primary);
-  padding: 5px 26px 5px 10px;
-  border-radius: var(--radius-sm);
+  height: 28px;
+  line-height: 26px;
+  padding: 0 20px 0 8px;
+  border-radius: 3px;
   font-size: 11px;
   font-weight: 500;
   outline: none;
@@ -307,11 +218,12 @@ body {
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 6px center;
-  background-size: 13px;
+  background-position: right 4px center;
+  background-size: 11px;
   font-family: var(--font-sans);
   box-shadow: var(--shadow-btn);
   transition: all 0.15s ease;
+  box-sizing: border-box;
 }
 
 .select-control:hover {
@@ -319,29 +231,177 @@ body {
   background-color: var(--bg-surface-hover);
 }
 
-.select-control:focus {
-  border-color: var(--border-focus);
+.sat-selector {
+  min-width: 170px;
+  max-width: 210px;
 }
 
-/* Mission Clock Widget */
-.clock-display {
+.algo-select {
+  min-width: 130px;
+  max-width: 160px;
+}
+
+.att-select, .cam-select {
+  min-width: 90px;
+}
+
+.nav-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-card);
+  color: var(--text-primary);
+  height: 28px;
+  line-height: 26px;
+  padding: 0 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: var(--shadow-btn);
+  transition: all 0.15s ease;
+  font-family: var(--font-sans);
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.nav-btn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+  color: #ffffff;
+}
+
+.nav-btn:active {
+  transform: translateY(1px);
+}
+
+.nav-btn.gold {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fde68a;
+}
+
+.nav-btn.gold:hover {
+  background: rgba(245, 158, 11, 0.26);
+  border-color: #f59e0b;
+}
+
+.nav-btn.maneuver-btn {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.nav-btn.maneuver-btn:hover {
+  background: rgba(239, 68, 68, 0.28);
+  border-color: #ef4444;
+}
+
+/* ==========================================================================
+   Segmented Control Layer Switcher
+   ========================================================================== */
+.layer-toggles-bar {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border-card);
+  border-radius: 3px;
+  padding: 1px;
+  gap: 1px;
+  box-sizing: border-box;
+}
+
+.layer-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  height: 24px;
+  line-height: 22px;
+  padding: 0 6px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+  font-family: var(--font-sans);
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.layer-btn .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.layer-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.layer-btn.active-sgp4 {
+  background: rgba(249, 115, 22, 0.16);
+  border-color: rgba(249, 115, 22, 0.4);
+  color: #fdba74;
+}
+
+.layer-btn.active-truth {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #6ee7b7;
+}
+
+.layer-btn.active-hybrid {
+  background: rgba(168, 85, 247, 0.16);
+  border-color: rgba(168, 85, 247, 0.4);
+  color: #d8b4fe;
+}
+
+.layer-btn.active-calibrated {
+  background: rgba(6, 182, 212, 0.16);
+  border-color: rgba(6, 182, 212, 0.4);
+  color: #67e8f9;
+}
+
+/* Master Digital Mission Clock Card */
+.clock-card {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(56, 189, 248, 0.25);
+  padding: 0 8px;
+  gap: 6px;
+}
+
+.clock-icon {
+  font-size: 12px;
+}
+
+.clock-content {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  padding-left: 10px;
-  border-left: 1px solid var(--border-card);
+  justify-content: center;
+  text-align: right;
   font-family: var(--font-mono);
 }
 
 .clock-utc {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #38bdf8;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .clock-mjd {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-dim);
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 /* ==========================================================================
@@ -633,13 +693,20 @@ body {
 
 /* ML Residual Hero Card */
 .ml-hero-card {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  padding: 10px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.ml-hero-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .ml-hero-title {
@@ -650,22 +717,117 @@ body {
   letter-spacing: 0.04em;
 }
 
+.live-pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--color-nominal);
+  box-shadow: 0 0 8px var(--color-nominal);
+  animation: pulse-dot 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
 .ml-hero-metric {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 10px;
 }
 
 .ml-hero-metric .big-number {
   font-family: var(--font-mono);
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 800;
   color: var(--color-nominal);
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 12px rgba(52, 211, 153, 0.25);
 }
 
 .ml-hero-metric .badge-desc {
   font-size: 10px;
-  color: var(--text-secondary);
+  color: #94a3b8;
+  background: rgba(51, 65, 85, 0.5);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.ml-hero-subgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-card);
+}
+
+.subgrid-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subgrid-label {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.subgrid-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.error-val {
+  color: var(--color-danger);
+}
+
+.nominal-val {
+  color: var(--color-telemetry);
+}
+
+.ml-hero-ric-live {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: #cbd5e1;
+  background: rgba(30, 41, 59, 0.4);
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px dashed rgba(100, 116, 139, 0.3);
+}
+
+.ml-hero-ric-live .ric-tag {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-family: inherit;
+}
+
+.ml-hero-ric-live b {
+  font-weight: 700;
+  color: var(--color-warning);
+}
+
+.ml-hero-source {
+  font-size: 9px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ml-hero-source b {
+  color: #94a3b8;
+  font-weight: 500;
 }
 
 /* Ground Pass Timeline */

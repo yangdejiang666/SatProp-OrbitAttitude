@@ -157,18 +157,24 @@ class SatelliteDataManager:
             prop: SGP4Propagator = sat["propagator"]
             epoch_jd = prop.epoch_jd
             
-            # Calculate orbital period from mean motion
-            n_rad_s = prop.mean_motion_rad_s if hasattr(prop, "mean_motion_rad_s") else (2.0 * np.pi / 5500.0)
-            period_s = (2.0 * np.pi) / n_rad_s if n_rad_s > 0 else 5500.0
+            # Calculate orbital period directly from real TLE mean motion (no_kozai in rad/min)
+            if hasattr(prop, "satrec") and hasattr(prop.satrec, "no_kozai") and prop.satrec.no_kozai > 0:
+                n_rad_s = prop.satrec.no_kozai / 60.0
+            elif hasattr(prop, "mean_motion_rad_s") and prop.mean_motion_rad_s > 0:
+                n_rad_s = prop.mean_motion_rad_s
+            else:
+                n_rad_s = 2.0 * np.pi / 5500.0
             
-            # Propagate 1 full closed revolution + margin (120 points) for continuous 3D loop
-            t_span = max(period_s * 1.05, 5400.0)
-            n_pts = 120
+            period_s = (2.0 * np.pi) / n_rad_s
+            
+            # Propagate EXACTLY 1 full revolution (180 points) so t=0 and t=period_s close seamlessly in 3D
+            t_span = period_s
+            n_pts = 180
             dt = t_span / float(n_pts)
             prop_res = prop.propagate(t_span, dt, epoch_jd)
 
             r_eci_pts = prop_res["states_eci"][:, 0:3].tolist()
-            # Ensure closed loop by appending first point if needed
+            # Ensure closed loop by appending exact first point
             if len(r_eci_pts) > 2:
                 r_eci_pts.append(r_eci_pts[0])
 

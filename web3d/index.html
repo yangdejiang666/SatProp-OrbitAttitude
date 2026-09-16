@@ -40,91 +40,93 @@
     </div>
 
     <!-- Top Mission Control Navigation Bar -->
+    <!-- Top Mission Control Navigation Bar (Symmetrical Card Modules, Pixel-Perfect 34px Height) -->
     <header id="top-navbar" class="glass-panel">
-        <div class="brand-section">
+        <!-- Module 1: Brand & Operational Status Card -->
+        <div class="top-nav-card brand-card">
             <div class="brand-icon">
                 <svg viewBox="0 0 24 24">
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
                 </svg>
             </div>
-            <div class="brand-title">
-                SatProp Ground Control
+            <div class="brand-title-wrap">
+                <span class="brand-text">SatProp Ground Control</span>
                 <span class="system-badge" id="live-status-text">
-                    <span class="live-pulse"></span> OPERATIONAL
+                    <span class="live-pulse"></span> TELEMETRY LIVE
                 </span>
             </div>
         </div>
 
-        <div class="nav-controls">
-            <!-- Trajectory Comparison Segmented Controls -->
+        <!-- Module 2: Target Satellite & Real Ephemeris Assimilation Card -->
+        <div class="top-nav-card sat-card">
+            <span class="top-card-badge">目标星</span>
+            <select id="select-satellite" class="select-control sat-selector" title="选择目标遥感卫星与空间站 (Space-Track/CelesTrak 实时数据)">
+                <option value="tiangong" selected>中国天宫空间站 (CSS Tianhe #48274)</option>
+                <option value="iss">国际空间站 (ISS #25544)</option>
+                <option value="sentinel2a">哨兵-2A 光学遥感 (Sentinel-2A #40697)</option>
+                <option value="landsat9">大地卫星-9 多光谱 (Landsat 9 #49260)</option>
+                <option value="cartosat2">高分光学遥感 (Cartosat-2 #29710)</option>
+                <option value="beidou">北斗三号中圆轨 (BeiDou-3 M5 #43581)</option>
+            </select>
+            <button id="btn-sync-celestrak" class="nav-btn sync-btn" title="一键从 CelesTrak 同步最新官方实测 TLE 星历">
+                🔄 同步星历
+            </button>
+            <button id="btn-synthetic-tuning" class="nav-btn gold" title="直连 Space-Track / CelesTrak 国际星历库，同化实测数据并进行高精动力学校准">
+                🛰️ 实测同化校准
+            </button>
+        </div>
+
+        <!-- Module 3: Trajectory Comparison Segmented Controls Card -->
+        <div class="top-nav-card layers-card">
+            <span class="top-card-badge">轨道图层</span>
             <div class="layer-toggles-bar" title="轨道模型对比图层开关">
                 <button id="btn-layer-sgp4" class="layer-btn active-sgp4" title="标准分析模型 (SGP4 原始偏差轨)">
-                    <span class="dot" style="background:#f97316;"></span> SGP4 偏差轨
+                    <span class="dot" style="background:#f97316;"></span> SGP4偏差
                 </button>
                 <button id="btn-layer-truth" class="layer-btn active-truth" title="高精度 Cowell 数值积分 (高保真真轨)">
-                    <span class="dot" style="background:#10b981;"></span> Cowell 真轨
+                    <span class="dot" style="background:#10b981;"></span> Cowell真轨
                 </button>
                 <button id="btn-layer-hybrid" class="layer-btn active-hybrid" title="物理模型 + ML 残差修正轨 (Hybrid)">
-                    <span class="dot" style="background:#a855f7;"></span> ML 矫正轨
+                    <span class="dot" style="background:#a855f7;"></span> ML矫正
                 </button>
                 <button id="btn-layer-calibrated" class="layer-btn active-calibrated" title="实测星历校准预测轨 (Calibrated Unified Predictor)">
-                    <span class="dot" style="background:#06b6d4;"></span> 实测校准预测轨
+                    <span class="dot" style="background:#06b6d4;"></span> 实测校准
                 </button>
             </div>
+        </div>
 
-            <!-- Real Observation Assimilation & Orbit Calibration Button -->
-            <button id="btn-synthetic-tuning" class="nav-btn gold" title="直连 Space-Track / CelesTrak 国际星历库，同化实测数据并进行高精动力学校准">
-                🛰️ 实测星历同化与定轨校验
+        <!-- Module 4: Dynamics, Attitude & Camera Mode Card -->
+        <div class="top-nav-card dynamics-card">
+            <select id="select-propagator" class="select-control algo-select" title="动力学预测器算法">
+                <option value="UNIFIED">统一多物理预测 (Unified)</option>
+                <option value="HYBRID_ML">物理 + ML残差 (Hybrid)</option>
+                <option value="SGP4">标准分析模型 (SGP4)</option>
+                <option value="COWELL_RKF78">数值积分 (Cowell RKF78)</option>
+                <option value="COWELL_RK4">经典龙格库塔 (RK4)</option>
+                <option value="COWELL_ABM4">多步法 (ABM4)</option>
+            </select>
+            <select id="select-attitude-mode" class="select-control att-select" title="卫星姿态指向模式">
+                <option value="NADIR">对地定向 (Nadir)</option>
+                <option value="SUN">对日定向 (Sun)</option>
+            </select>
+            <select id="select-camera-mode" class="select-control cam-select" title="三维视角切换">
+                <option value="FREE">🌍 自由全景</option>
+                <option value="FOLLOW">🎯 锁定跟踪</option>
+                <option value="CLOSEUP">🔍 近景特写</option>
+                <option value="CELESTIAL">🌕 月球深空</option>
+                <option value="STATION">📡 测控站</option>
+            </select>
+            <button id="btn-maneuver" class="nav-btn maneuver-btn" title="启动变轨推进器进行轨道维持矫正">
+                🔥 轨道机动
             </button>
+        </div>
 
-            <!-- Camera View Mode -->
-            <select id="select-camera-mode" class="select-control camera-mode-select" title="三维视角切换">
-                <option value="FREE">🌍 自由全景视角</option>
-                <option value="FOLLOW">🎯 锁定跟踪视角</option>
-                <option value="CLOSEUP">🔍 卫星近景特写</option>
-                <option value="CELESTIAL">🌕 月球与深空天体视角</option>
-                <option value="STATION">📡 测控站仰视视角</option>
-            </select>
-
-            <!-- Satellite Selection (Real remote sensing satellites & space stations) -->
-            <select id="select-satellite" class="select-control" title="选择目标遥感卫星与空间站 (Space-Track/CelesTrak 实时数据)">
-                <option value="tiangong" selected>TIANGONG (中国天宫空间站 - NORAD #48274 实测TLE)</option>
-                <option value="iss">ISS (国际空间站 - NASA/Space-Track #25544 实测TLE)</option>
-                <option value="sentinel2a">SENTINEL-2A (欧空局光学遥感卫星 - NORAD #40697 实测TLE)</option>
-                <option value="landsat9">LANDSAT 9 (NASA/USGS多光谱遥感卫星 - NORAD #49260 实测TLE)</option>
-                <option value="cartosat2">CARTOSAT-2 (高分光学遥感卫星 - NORAD #29710 实测TLE)</option>
-                <option value="beidou">BEIDOU-3 M5 (中国北斗三号中圆轨卫星 - NORAD #43581 实测TLE)</option>
-            </select>
-
-            <button id="btn-sync-celestrak" class="nav-btn" title="一键从 CelesTrak 同步最新官方实测 TLE 星历">
-                🔄 同步实时星历
-            </button>
-
-            <!-- Propagator Mode -->
-            <select id="select-propagator" class="select-control" title="动力学预测器算法">
-                <option value="UNIFIED">统一多物理预测模型 (Unified Orbit Predictor)</option>
-                <option value="HYBRID_ML">物理模型 + ML 残差修正 (Hybrid)</option>
-                <option value="SGP4">标准分析模型 (SGP4/SDP4)</option>
-                <option value="COWELL_RKF78">高精度数值积分 (Cowell RKF78)</option>
-                <option value="COWELL_RK4">经典龙格库塔 (Cowell RK4)</option>
-                <option value="COWELL_ABM4">多步法 (Adams-Bashforth-Moulton)</option>
-            </select>
-
-            <!-- Attitude Pointing Mode -->
-            <select id="select-attitude-mode" class="select-control" title="卫星姿态指向模式">
-                <option value="NADIR">对地定向 (Nadir Remote Sensing)</option>
-                <option value="SUN">对日定向 (Sun Pointing / Solar)</option>
-            </select>
-
-            <!-- Maneuver Button ("回归正轨过程") -->
-            <button id="btn-maneuver" class="nav-btn" title="启动变轨推进器进行轨道维持矫正">
-                🔥 轨道维持 / 回归正轨
-            </button>
-
-            <!-- Live Mission Clock -->
-            <div class="clock-display">
-                <div class="clock-utc" id="clock-utc-time">2026-03-16 12:00:00 UTC</div>
-                <div class="clock-mjd" id="clock-mjd-val">MJD: 61115.50000</div>
+        <!-- Module 5: Master Mission Clock Card -->
+        <div class="top-nav-card clock-card">
+            <div class="clock-icon">⏱️</div>
+            <div class="clock-content">
+                <span id="clock-utc-time" class="clock-utc">2026-09-16 13:00:00 UTC</span>
+                <span id="clock-mjd-val" class="clock-mjd">MJD: 61299.80000</span>
             </div>
         </div>
     </header>
@@ -275,14 +277,32 @@
                 </div>
 
                 <div class="ml-hero-card">
-                    <div class="ml-hero-title">1小时预报误差下降率 (1-σ Confidence)</div>
-                    <div class="ml-hero-metric">
-                        <span class="big-number" id="hero-reduction">85.5%</span>
-                        <span class="badge-desc">超越 10% 目标</span>
+                    <div class="ml-hero-header">
+                        <span class="ml-hero-title">实时动力学滤波精度提升率 (1-σ)</span>
+                        <span class="live-pulse"></span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); margin-top: 4px;">
-                        <span>SGP4原始: <b id="hero-sgp4-err" style="color:#ef4444;">14,641 m</b></span>
-                        <span>ML修正: <b id="hero-hybrid-err" style="color:var(--color-nominal);">2,120 m</b></span>
+                    <div class="ml-hero-metric">
+                        <span class="big-number" id="hero-reduction">+84.6%</span>
+                        <span class="badge-desc">优于标准目标 (10%)</span>
+                    </div>
+                    <div class="ml-hero-subgrid">
+                        <div class="subgrid-col">
+                            <span class="subgrid-label">SGP4实时偏差:</span>
+                            <b id="hero-sgp4-err" class="subgrid-val error-val">4,833 m</b>
+                        </div>
+                        <div class="subgrid-col">
+                            <span class="subgrid-label">高精动力学残差:</span>
+                            <b id="hero-hybrid-err" class="subgrid-val nominal-val">742 m</b>
+                        </div>
+                    </div>
+                    <div class="ml-hero-ric-live">
+                        <span class="ric-tag">瞬时误差分解:</span>
+                        <span>ΔR: <b id="hero-ric-dr">+24.2 m</b></span>
+                        <span>ΔI: <b id="hero-ric-di">-718.0 m</b></span>
+                        <span>ΔC: <b id="hero-ric-dc">+18.5 m</b></span>
+                    </div>
+                    <div class="ml-hero-source">
+                        <span>🛰️ 实测数据源: <b>Space-Track / CelesTrak 官方发布星历</b></span>
                     </div>
                 </div>
 

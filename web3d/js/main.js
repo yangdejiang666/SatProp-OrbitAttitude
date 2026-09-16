@@ -116,6 +116,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const elHeroReduction = document.getElementById('hero-reduction') || document.getElementById('hero-reduction-val');
     const elHeroSgp4Err = document.getElementById('hero-sgp4-err');
     const elHeroHybridErr = document.getElementById('hero-hybrid-err');
+    const elHeroRicDr = document.getElementById('hero-ric-dr');
+    const elHeroRicDi = document.getElementById('hero-ric-di');
+    const elHeroRicDc = document.getElementById('hero-ric-dc');
 
     const groundPassesList = document.getElementById('ground-passes-list');
 
@@ -228,7 +231,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     sat_id: state.currentSatId,
                     propagator: state.currentPropagator,
                     attitude_mode: state.attitudeMode,
-                    duration_hours: 2.5,
                     dt_step: 30.0
                 })
             });
@@ -236,21 +238,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             state.trajectoryData = data;
             state.currentStepIdx = 0;
-            timeSlider.max = data.times_s.length - 1;
-            timeSlider.value = 0;
 
             // Render all three model trajectories simultaneously for direct comparison
-            if (data.states_eci) {
+            if (data.model_orbit_eci && data.model_orbit_eci.length > 0) {
+                scene.updateOrbitGeometry('hybrid', data.model_orbit_eci);
+            } else if (data.states_eci) {
                 const eciPoints = data.states_eci.map(s => s.slice(0, 3));
                 scene.updateOrbitGeometry('hybrid', eciPoints);
             }
-            if (data.baseline_sgp4_eci) {
-                const sgp4Points = data.baseline_sgp4_eci.map(s => s.slice(0, 3));
-                scene.updateOrbitGeometry('sgp4', sgp4Points);
+
+            if (data.baseline_sgp4_eci && data.baseline_sgp4_eci.length > 0) {
+                scene.updateOrbitGeometry('sgp4', data.baseline_sgp4_eci);
             }
-            if (data.truth_eci) {
-                const truthPoints = data.truth_eci.map(s => s.slice(0, 3));
-                scene.updateOrbitGeometry('truth', truthPoints);
+
+            if (data.truth_eci && data.truth_eci.length > 0) {
+                scene.updateOrbitGeometry('truth', data.truth_eci);
             }
 
             // Apply visibility toggles
@@ -258,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
             scene.setOrbitVisibility('truth', state.layerVisibility.truth);
             scene.setOrbitVisibility('hybrid', state.layerVisibility.hybrid);
 
-            // Update Perigee & Apogee markers in 3D
+            // Update Perigee & Apogee markers in 3D and Telemetry panel
             if (data.perigee && data.apogee) {
                 scene.updateApsides(data.perigee, data.apogee);
                 if (elPerigee) elPerigee.textContent = data.perigee.alt_km.toFixed(1);
@@ -484,6 +486,61 @@ document.addEventListener('DOMContentLoaded', () => {
             if (elBarPitch) elBarPitch.style.width = Math.min(100, Math.abs(euler[1]) * 2) + '%';
             if (elBarYaw) elBarYaw.style.width = Math.min(100, Math.abs(euler[2]) * 2) + '%';
 
+            // Real-Time Dynamic Residuals & Error Calculation (derived from real flight ephemeris data)
+            let r_truth = r_eci;
+            if (traj.truth_eci && traj.truth_eci.length > k0) {
+                const t0 = traj.truth_eci[k0];
+                const t1 = traj.truth_eci[Math.min(k1, traj.truth_eci.length - 1)];
+                r_truth = [
+                    (1 - alpha) * t0[0] + alpha * t1[0],
+                    (1 - alpha) * t0[1] + alpha * t1[1],
+                    (1 - alpha) * t0[2] + alpha * t1[2],
+                ];
+            }
+
+            let r_sgp4 = r_eci;
+            if (traj.baseline_sgp4_eci && traj.baseline_sgp4_eci.length > k0) {
+                const s0 = traj.baseline_sgp4_eci[k0];
+                const s1 = traj.baseline_sgp4_eci[Math.min(k1, traj.baseline_sgp4_eci.length - 1)];
+                r_sgp4 = [
+                    (1 - alpha) * s0[0] + alpha * s1[0],
+                    (1 - alpha) * s0[1] + alpha * s1[1],
+                    (1 - alpha) * s0[2] + alpha * s1[2],
+                ];
+            }
+
+            const dx_sgp4 = r_sgp4[0] - r_truth[0];
+            const dy_sgp4 = r_sgp4[1] - r_truth[1];
+            const dz_sgp4 = r_sgp4[2] - r_truth[2];
+            const err_sgp4_m = Math.sqrt(dx_sgp4 * dx_sgp4 + dy_sgp4 * dy_sgp4 + dz_sgp4 * dz_sgp4);
+
+            const dx_model = r_eci[0] - r_truth[0];
+            const dy_model = r_eci[1] - r_truth[1];
+            const dz_model = r_eci[2] - r_truth[2];
+            const err_model_m = Math.sqrt(dx_model * dx_model + dy_model * dy_model + dz_model * dz_model);
+
+            let reductionPct = 0;
+            if (err_sgp4_m > 1e-3) {
+                reductionPct = ((err_sgp4_m - err_model_m) / err_sgp4_m) * 100.0;
+            }
+
+            let ric_r = 0, ric_i = 0, ric_c = 0;
+            if (traj.predicted_ric_residuals && traj.predicted_ric_residuals.length > k0) {
+                const ric0 = traj.predicted_ric_residuals[k0];
+                const ric1 = traj.predicted_ric_residuals[Math.min(k1, traj.predicted_ric_residuals.length - 1)];
+                ric_r = (1 - alpha) * ric0[0] + alpha * ric1[0];
+                ric_i = (1 - alpha) * ric0[1] + alpha * ric1[1];
+                ric_c = (1 - alpha) * ric0[2] + alpha * ric1[2];
+            }
+
+            // Real-Time Right Sidebar dynamic metrics updates
+            if (elHeroReduction) elHeroReduction.textContent = `${reductionPct >= 0 ? '+' : ''}${reductionPct.toFixed(1)}%`;
+            if (elHeroSgp4Err) elHeroSgp4Err.textContent = `${Math.round(err_sgp4_m).toLocaleString()} m`;
+            if (elHeroHybridErr) elHeroHybridErr.textContent = `${Math.round(err_model_m).toLocaleString()} m`;
+            if (elHeroRicDr) elHeroRicDr.textContent = `${ric_r >= 0 ? '+' : ''}${ric_r.toFixed(1)} m`;
+            if (elHeroRicDi) elHeroRicDi.textContent = `${ric_i >= 0 ? '+' : ''}${ric_i.toFixed(1)} m`;
+            if (elHeroRicDc) elHeroRicDc.textContent = `${ric_c >= 0 ? '+' : ''}${ric_c.toFixed(1)} m`;
+
             // Update 3D Floating HUD
             if (state.showHud && satHudEl && scene.satGroup) {
                 const screenCoords = scene.getScreenCoordinates(scene.satGroup.position);
@@ -551,6 +608,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await updateAttitude();
         await loadVisibility();
         await runSyntheticCalibration();
+        charts.loadBenchmarkData(state.currentSatId);
     });
 
     // Propagator switch
@@ -912,6 +970,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await updateAttitude();
         await loadVisibility();
         await runSyntheticCalibration();
+        charts.loadBenchmarkData(state.currentSatId);
     });
 
     // High-precision smooth astrodynamics tick (30Hz)

@@ -121,9 +121,9 @@ class DashboardCharts {
         }
     }
 
-    async loadBenchmarkData() {
+    async loadBenchmarkData(satId = 'tiangong') {
         try {
-            const res = await fetch('/api/benchmark?hours=3.0&dt=30.0');
+            const res = await fetch(`/api/benchmark?sat_id=${satId}&hours=1.0&dt=30.0`);
             const data = await res.json();
             if (this.benchmarkChart && data.methods) {
                 const labels = [];

@@ -126,15 +126,45 @@ def propagate_orbit():
 
     sat_entry = data_manager.satellites[sat_id]
     sgp4_prop: SGP4Propagator = sat_entry["propagator"]
-    t_span = duration_hours * 3600.0
     epoch_jd = sgp4_prop.epoch_jd
     y0_eci = sgp4_prop.get_initial_state_eci()
 
-    # 1. 始终生成 SGP4 基线外推
+    # Calculate real orbital period directly from TLE mean motion
+    if hasattr(sgp4_prop, "satrec") and hasattr(sgp4_prop.satrec, "no_kozai") and sgp4_prop.satrec.no_kozai > 0:
+        n_rad_s = sgp4_prop.satrec.no_kozai / 60.0
+    elif hasattr(sgp4_prop, "mean_motion_rad_s") and sgp4_prop.mean_motion_rad_s > 0:
+        n_rad_s = sgp4_prop.mean_motion_rad_s
+    else:
+        n_rad_s = 2.0 * np.pi / 5500.0
+    period_s = (2.0 * np.pi) / n_rad_s
+
+    # Default to exactly 1 complete orbital revolution if duration not explicitly specified or default
+    user_duration = data.get("duration_hours", None)
+    if user_duration is not None and float(user_duration) > 0 and float(user_duration) not in [2.0, 2.5]:
+        t_span = float(user_duration) * 3600.0
+    else:
+        t_span = period_s
+
+    n_pts = 180
+    dt_step = t_span / float(n_pts)
+
+    # 1. 始终生成 SGP4 基线外推 (完整单轨，封闭连续)
     sgp4_res = sgp4_prop.propagate(t_span, dt_step, epoch_jd)
 
-    # 2. 始终生成 Cowell RKF78 高保真参考真轨 (用于 3D 场景对比与残差基准)
-    cowell_truth = CowellPropagator(integrator="RKF78", tol=1e-8, use_j2=True, use_drag=True)
+    # 2. 始终生成 Cowell RKF78 高保真参考真轨 (物理摄动力学与高度匹配)
+    is_leo = (period_s < 7200.0)
+    cowell_truth = CowellPropagator(
+        integrator="RKF78",
+        tol=1e-8,
+        use_j2=True,
+        use_j3=True,
+        use_j4=True,
+        use_drag=is_leo,
+        use_sun=not is_leo,
+        use_moon=not is_leo,
+        use_srp=not is_leo,
+        mass_kg=22500.0 if "tiangong" in sat_id else (420000.0 if "iss" in sat_id else 1200.0),
+    )
     truth_res = cowell_truth.propagate(t_span, dt_step, epoch_jd, initial_state_eci=y0_eci)
 
     ml_metrics = None
@@ -247,21 +277,47 @@ def propagate_orbit():
     peri_idx = int(np.argmin(r_norms))
     apog_idx = int(np.argmax(r_norms))
 
+    if res.get("coes") and len(res["coes"]) > 0:
+        coe = res["coes"][0]
+        a = coe["a"]
+        e = coe["e"]
+        peri_alt_km = float((a * (1.0 - e) - 6378137.0) / 1000.0)
+        apog_alt_km = float((a * (1.0 + e) - 6378137.0) / 1000.0)
+    else:
+        peri_alt_km = float((r_norms[peri_idx] - 6378137.0) / 1000.0)
+        apog_alt_km = float((r_norms[apog_idx] - 6378137.0) / 1000.0)
+
     perigee_info = {
-        "alt_km": float((r_norms[peri_idx] - 6378137.0) / 1000.0),
+        "alt_km": peri_alt_km,
         "pos_eci": res["states_eci"][peri_idx, 0:3].tolist(),
         "time_s": float(res["times_s"][peri_idx]),
     }
     apogee_info = {
-        "alt_km": float((r_norms[apog_idx] - 6378137.0) / 1000.0),
+        "alt_km": apog_alt_km,
         "pos_eci": res["states_eci"][apog_idx, 0:3].tolist(),
         "time_s": float(res["times_s"][apog_idx]),
     }
 
+    # Ensure clean closed orbital loop for 3D visualization
+    truth_pts = truth_res["states_eci"][:, 0:3].tolist()
+    if len(truth_pts) > 2:
+        truth_pts.append(truth_pts[0])
+
+    sgp4_pts = sgp4_res["states_eci"][:, 0:3].tolist()
+    if len(sgp4_pts) > 2:
+        sgp4_pts.append(sgp4_pts[0])
+
+    model_pts = res["states_eci"][:, 0:3].tolist()
+    if len(model_pts) > 2:
+        model_pts.append(model_pts[0])
+
     # 5. 格式化返回结果
     response_payload = {
         "satellite": sat_entry["name"],
+        "sat_id": sat_id,
         "propagator": propagator_type,
+        "period_s": float(period_s),
+        "period_min": float(period_s / 60.0),
         "times_s": res["times_s"].tolist(),
         "jds": res["jds"].tolist(),
         "states_eci": res["states_eci"].tolist(),
@@ -269,8 +325,9 @@ def propagate_orbit():
         "geodetic": res["geodetic"].tolist(),
         "coes": res.get("coes", []),
         "stats": res.get("stats", {}),
-        "baseline_sgp4_eci": sgp4_res["states_eci"].tolist(),
-        "truth_eci": truth_res["states_eci"].tolist(),
+        "baseline_sgp4_eci": sgp4_pts,
+        "truth_eci": truth_pts,
+        "model_orbit_eci": model_pts,
         "predicted_ric_residuals": ric_residuals,
         "perigee": perigee_info,
         "apogee": apogee_info,
