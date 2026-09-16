@@ -25,6 +25,9 @@ class SpaceScene {
         this.createTrackingBeam();
         this.initApsidesMarkers();
 
+        this.syntheticMarkersGroup = new THREE.Group();
+        this.scene.add(this.syntheticMarkersGroup);
+
         this.animate = this.animate.bind(this);
         requestAnimationFrame(this.animate);
 
@@ -269,6 +272,33 @@ class SpaceScene {
         this.orbitLines.drifted = this.createOrbitLineMesh(0xff0055, 1.5, true);
         // Station-Keeping Maneuver Path: Gold
         this.orbitLines.maneuver = this.createOrbitLineMesh(0xffd700, 3.2, false);
+        // Tuned/Calibrated Orbit: Electric Neon Cyan
+        this.orbitLines.calibrated = this.createOrbitLineMesh(0x00e5ff, 2.8, false);
+    }
+
+    updateSyntheticObservationMarkers(obsList) {
+        if (!this.syntheticMarkersGroup) return;
+
+        // Clear existing markers
+        while (this.syntheticMarkersGroup.children.length > 0) {
+            const child = this.syntheticMarkersGroup.children[0];
+            if (child.geometry) child.geometry.dispose();
+            this.syntheticMarkersGroup.remove(child);
+        }
+
+        if (!obsList || obsList.length === 0) return;
+
+        const octaGeo = new THREE.OctahedronGeometry(0.2, 0);
+        const octaMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: false });
+
+        obsList.forEach(obs => {
+            const pt = obs.pos_eci;
+            if (pt) {
+                const mesh = new THREE.Mesh(octaGeo, octaMat);
+                mesh.position.set(pt[0] * this.scaleRatio, pt[2] * this.scaleRatio, -pt[1] * this.scaleRatio);
+                this.syntheticMarkersGroup.add(mesh);
+            }
+        });
     }
 
     createOrbitLineMesh(colorHex, linewidth, isDashed = false) {

@@ -678,3 +678,80 @@ body {
   font-weight: 600;
   margin-bottom: 2px;
 }
+
+/* ==========================================================================
+   Synthetic Telemetry Tuning Modal & Calibrated Layer
+   ========================================================================== */
+#synthetic-modal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 520px;
+  max-width: 92vw;
+  z-index: 100;
+  padding: 22px;
+  display: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 35px rgba(0, 240, 255, 0.35);
+}
+
+.tuning-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tuning-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tuning-label-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-main);
+}
+
+.tuning-badge {
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+.tuning-slider {
+  width: 100%;
+  height: 5px;
+  accent-color: var(--accent-cyan);
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.tuning-feedback-box {
+  background: rgba(6, 15, 33, 0.75);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.feedback-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.layer-btn.active-calibrated {
+  background: rgba(0, 229, 255, 0.22);
+  border-color: #00e5ff;
+  color: #00e5ff;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.45);
+}
+

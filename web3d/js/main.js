@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
             sgp4: true,
             truth: true,
             hybrid: true,
+            calibrated: true,
         },
         trajectoryData: null,
         attitudeData: null,
@@ -46,6 +47,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnLayerSgp4 = document.getElementById('btn-layer-sgp4');
     const btnLayerTruth = document.getElementById('btn-layer-truth');
     const btnLayerHybrid = document.getElementById('btn-layer-hybrid');
+    const btnLayerCalibrated = document.getElementById('btn-layer-calibrated');
+
+    const btnSyntheticTuning = document.getElementById('btn-synthetic-tuning');
+    const syntheticModal = document.getElementById('synthetic-modal');
+    const btnCloseSyntheticModal = document.getElementById('btn-close-synthetic-modal');
+    const btnRunSyntheticCalib = document.getElementById('btn-run-synthetic-calibration');
+
+    const sliderTuneObs = document.getElementById('slider-tune-obs');
+    const badgeTuneObs = document.getElementById('badge-tune-obs');
+    const sliderTuneNoise = document.getElementById('slider-tune-noise');
+    const badgeTuneNoise = document.getElementById('badge-tune-noise');
+    const sliderTuneCd = document.getElementById('slider-tune-cd');
+    const badgeTuneCd = document.getElementById('badge-tune-cd');
+    const selectTuneAttitude = document.getElementById('select-tune-attitude');
+    const selectTuneIntegrator = document.getElementById('select-tune-integrator');
+
+    const tunePriorErr = document.getElementById('tune-prior-err');
+    const tunePostErr = document.getElementById('tune-post-err');
+    const tuneImprovement = document.getElementById('tune-improvement');
+    const tuneEstCd = document.getElementById('tune-est-cd');
 
     const btnManeuver = document.getElementById('btn-maneuver');
     const btnToggleHud = document.getElementById('btn-toggle-hud');
@@ -441,6 +462,101 @@ document.addEventListener('DOMContentLoaded', () => {
         scene.setOrbitVisibility('hybrid', state.layerVisibility.hybrid);
     });
 
+    btnLayerCalibrated.addEventListener('click', () => {
+        state.layerVisibility.calibrated = !state.layerVisibility.calibrated;
+        btnLayerCalibrated.classList.toggle('active-calibrated', state.layerVisibility.calibrated);
+        scene.setOrbitVisibility('calibrated', state.layerVisibility.calibrated);
+    });
+
+    // Synthetic Tuning Modal Open & Close
+    btnSyntheticTuning.addEventListener('click', () => {
+        if (syntheticModal) {
+            syntheticModal.style.display = syntheticModal.style.display === 'block' ? 'none' : 'block';
+        }
+    });
+
+    btnCloseSyntheticModal.addEventListener('click', () => {
+        if (syntheticModal) syntheticModal.style.display = 'none';
+    });
+
+    // Tunable Sliders Live Value Labels
+    sliderTuneObs.addEventListener('input', (e) => {
+        badgeTuneObs.textContent = `${e.target.value} 点`;
+    });
+
+    sliderTuneNoise.addEventListener('input', (e) => {
+        badgeTuneNoise.textContent = `${parseFloat(e.target.value).toFixed(1)} m`;
+    });
+
+    sliderTuneCd.addEventListener('input', (e) => {
+        badgeTuneCd.textContent = `${parseFloat(e.target.value).toFixed(2)}`;
+    });
+
+    // Execute Synthetic Data Ingestion & Calibration
+    async function runSyntheticCalibration() {
+        if (btnRunSyntheticCalib) {
+            btnRunSyntheticCalib.textContent = '⏳ 正在拟合校准与高精推演...';
+            btnRunSyntheticCalib.disabled = true;
+        }
+        try {
+            const res = await fetch('/api/predict/synthetic_calibration', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sat_id: state.currentSatId,
+                    obs_count: parseInt(sliderTuneObs.value, 10),
+                    noise_sigma_m: parseFloat(sliderTuneNoise.value),
+                    cd_multiplier: parseFloat(sliderTuneCd.value),
+                    attitude_mode: selectTuneAttitude.value,
+                    integrator: selectTuneIntegrator.value,
+                    duration_hours: 2.5,
+                    dt_step: 30.0,
+                    ml_enabled: true
+                })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                // 1. Update Calibrated 3D Orbit
+                if (data.calibrated_orbit_eci) {
+                    scene.updateOrbitGeometry('calibrated', data.calibrated_orbit_eci.map(s => s.slice(0, 3)));
+                    scene.setOrbitVisibility('calibrated', state.layerVisibility.calibrated);
+                }
+                // 2. Render 3D Observation Markers on Orbit
+                if (data.synthetic_observations) {
+                    scene.updateSyntheticObservationMarkers(data.synthetic_observations);
+                }
+                // 3. Update Modal Accuracy Feedback
+                if (data.calibration_summary) {
+                    const s = data.calibration_summary;
+                    if (tunePriorErr) tunePriorErr.textContent = `${(s.residual_rms_prior_m / 1000).toFixed(1)} km`;
+                    if (tunePostErr) tunePostErr.textContent = `${(s.residual_rms_post_m / 1000).toFixed(1)} km`;
+                    if (tuneImprovement) tuneImprovement.textContent = `+${s.improvement_pct.toFixed(1)}% (精度收敛提升)`;
+                    if (tuneEstCd) tuneEstCd.textContent = `${s.calibrated_cd.toFixed(2)}`;
+                }
+                // 4. Update HUD Hero Card Metrics
+                if (data.accuracy_report) {
+                    const r = data.accuracy_report;
+                    if (elHeroReduction) elHeroReduction.textContent = `-${r.reduction_pct.toFixed(1)}%`;
+                    if (elHeroSgp4Err) elHeroSgp4Err.textContent = `${r.uncorrected_sgp4_sigma1_m.toFixed(0)} m`;
+                    if (elHeroHybridErr) elHeroHybridErr.textContent = `${r.calibrated_model_sigma1_m.toFixed(0)} m`;
+                }
+                // 5. Update RIC Residuals Chart
+                if (data.predicted_ric_residuals) {
+                    charts.updateRicChart(data.times_s, data.predicted_ric_residuals);
+                }
+            }
+        } catch (err) {
+            console.error('Synthetic calibration error:', err);
+        } finally {
+            if (btnRunSyntheticCalib) {
+                btnRunSyntheticCalib.textContent = '🚀 录入假数据并预测 (Calibrate & Predict)';
+                btnRunSyntheticCalib.disabled = false;
+            }
+        }
+    }
+
+    btnRunSyntheticCalib.addEventListener('click', runSyntheticCalibration);
+
     // Playback controls
     playPauseBtn.addEventListener('click', () => {
         state.isPlaying = !state.isPlaying;
@@ -526,6 +642,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updatePropagation();
         updateAttitude();
         loadVisibility();
+        runSyntheticCalibration();
     });
 
     // Telemetry update tick (20Hz)

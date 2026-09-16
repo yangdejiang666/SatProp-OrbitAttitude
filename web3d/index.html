@@ -67,7 +67,15 @@
                 <button id="btn-layer-hybrid" class="layer-btn active-hybrid" title="物理模型 + ML 残差修正轨 (Hybrid)">
                     🟢 ML 矫正轨
                 </button>
+                <button id="btn-layer-calibrated" class="layer-btn active-calibrated" title="调优数学模型预测轨 (Calibrated Unified Predictor)">
+                    ⚡ 调优预测轨
+                </button>
             </div>
+
+            <!-- Synthetic Data Calibration Button -->
+            <button id="btn-synthetic-tuning" class="nav-btn gold" title="调校遥测假数据观测与数学模型预测精度">
+                🧪 假数据与模型调优
+            </button>
 
             <!-- Camera View Mode -->
             <select id="select-camera-mode" class="select-control camera-mode-select" title="三维视角切换">
@@ -87,6 +95,7 @@
 
             <!-- Propagator Mode -->
             <select id="select-propagator" class="select-control" title="动力学预测器算法">
+                <option value="UNIFIED">统一高保真多物理预测模型 (Unified Orbit Predictor)</option>
                 <option value="HYBRID_ML">物理模型 + ML 残差修正 (Hybrid)</option>
                 <option value="SGP4">标准分析模型 (SGP4/SDP4)</option>
                 <option value="COWELL_RKF78">高精度数值积分 (Cowell RKF78)</option>
@@ -101,7 +110,7 @@
             </select>
 
             <!-- Maneuver Button ("回归正轨过程") -->
-            <button id="btn-maneuver" class="nav-btn gold" title="启动变轨推进器进行轨道维持矫正">
+            <button id="btn-maneuver" class="nav-btn" title="启动变轨推进器进行轨道维持矫正">
                 🔥 轨道维持 / 回归正轨
             </button>
 
@@ -268,6 +277,87 @@
         <div class="modal-btn-row">
             <button id="btn-cancel-burn" class="dock-pill-btn">取消</button>
             <button id="btn-confirm-burn" class="nav-btn gold">🔥 确认执行点火变轨</button>
+        </div>
+    </div>
+
+    <!-- Synthetic Telemetry Data Calibration & Accuracy Tuning Modal -->
+    <div id="synthetic-modal" class="glass-panel">
+        <div class="modal-title">🧪 遥测假数据录入与预测数学模型调优</div>
+        <p style="font-size:11px;color:var(--text-muted);margin-bottom:14px;line-height:1.5;">
+            录入一段可调的合成观测假数据，通过高阶摄动+姿态耦合数学预测模型实时校准与预报。调节观测参数可直观改变数学模型的预测准确度。
+        </p>
+
+        <div class="tuning-grid">
+            <!-- 1. Obs Count -->
+            <div class="tuning-slider-row">
+                <div class="tuning-label-row">
+                    <span>📡 观测采样点数 (Observation Points N):</span>
+                    <span class="tuning-badge" id="badge-tune-obs">10 点</span>
+                </div>
+                <input type="range" id="slider-tune-obs" class="tuning-slider" min="3" max="30" value="10" step="1">
+            </div>
+
+            <!-- 2. Noise Sigma -->
+            <div class="tuning-slider-row">
+                <div class="tuning-label-row">
+                    <span>📊 传感器测距噪声 (&sigma;):</span>
+                    <span class="tuning-badge" id="badge-tune-noise">3.0 m</span>
+                </div>
+                <input type="range" id="slider-tune-noise" class="tuning-slider" min="0.5" max="30.0" value="3.0" step="0.5">
+            </div>
+
+            <!-- 3. Drag Cd Multiplier -->
+            <div class="tuning-slider-row">
+                <div class="tuning-label-row">
+                    <span>💨 大气阻力系数 (C_D):</span>
+                    <span class="tuning-badge" id="badge-tune-cd">2.20</span>
+                </div>
+                <input type="range" id="slider-tune-cd" class="tuning-slider" min="1.5" max="3.5" value="2.2" step="0.1">
+            </div>
+
+            <!-- 4. Dynamics & Attitude Options -->
+            <div style="display:flex;gap:12px;margin-top:4px;">
+                <div style="flex:1;">
+                    <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">姿态耦合模式</label>
+                    <select id="select-tune-attitude" class="select-control" style="width:100%;">
+                        <option value="NADIR">对地指向 (Nadir - 迎风面最小)</option>
+                        <option value="SUN">对日定向 (Sun - 太阳翼迎风阻力调制)</option>
+                    </select>
+                </div>
+                <div style="flex:1;">
+                    <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">数值积分算法</label>
+                    <select id="select-tune-integrator" class="select-control" style="width:100%;">
+                        <option value="RKF78">Runge-Kutta-Fehlberg 7(8) (高精自适应)</option>
+                        <option value="ABM4">Adams-Bashforth-Moulton 4阶多步法</option>
+                        <option value="RK4">经典 4 阶龙格库塔 (定步长)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Accuracy Feedback Box -->
+        <div class="tuning-feedback-box">
+            <div class="feedback-row">
+                <span>校准前先验误差 (Prior RMS):</span>
+                <span id="tune-prior-err" style="color:#ff3366;">54.0 km</span>
+            </div>
+            <div class="feedback-row">
+                <span>校准后预测误差 (Posterior RMS):</span>
+                <span id="tune-post-err" style="color:#00e5ff;">46.8 km</span>
+            </div>
+            <div class="feedback-row">
+                <span>数学模型精度改善率:</span>
+                <span id="tune-improvement" style="color:var(--accent-green);font-weight:700;">+13.4% (误差收敛)</span>
+            </div>
+            <div class="feedback-row">
+                <span>反演校准阻力系数 (Calibrated C_D):</span>
+                <span id="tune-est-cd" style="color:var(--accent-amber);">2.34</span>
+            </div>
+        </div>
+
+        <div class="modal-btn-row">
+            <button id="btn-close-synthetic-modal" class="dock-pill-btn">关闭</button>
+            <button id="btn-run-synthetic-calibration" class="nav-btn gold">🚀 录入假数据并预测 (Calibrate & Predict)</button>
         </div>
     </div>
 
