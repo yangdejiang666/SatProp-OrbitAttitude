@@ -257,3 +257,13 @@ def compute_ric_errors(r_test: np.ndarray, v_test: np.ndarray, r_true: np.ndarra
         "dv_cross_track": float(dv_ric[2]),
         "total_vel_error": total_vel_error
     }
+
+
+def ric_to_eci(dr_ric: np.ndarray, r_ref_eci: np.ndarray, v_ref_eci: np.ndarray) -> np.ndarray:
+    """
+    Transform vector from RIC frame back to ECI frame:
+    dr_eci = (R_RIC)^T @ dr_ric
+    """
+    M_ric = eci_to_ric_matrix(r_ref_eci, v_ref_eci)
+    return M_ric.T @ dr_ric
+

@@ -116,64 +116,148 @@ def cmd_test(args):
     sys.exit(0 if result.wasSuccessful() else 1)
 
 
+def cmd_predict(args):
+    """Run Unified Orbit Prediction Mathematical Model."""
+    import json
+    from service.data_manager import SatelliteDataManager
+    from propagators.unified_predictor import UnifiedOrbitPredictor
+
+    dm = SatelliteDataManager()
+    if args.sat not in dm.satellites:
+        print(f"⚠️ 卫星 {args.sat} 未在数据库中找到。")
+        return
+
+    sat_entry = dm.satellites[args.sat]
+    prop = sat_entry["propagator"]
+    y0 = prop.get_initial_state_eci()
+
+    print("=" * 75)
+    print(f"🛰️  高保真统一轨道动力学预测数学模型: {sat_entry['name']}")
+    print(f"⚙️  配置: 积分器={args.integrator} | 姿态模式={args.mode} | 时长={args.hours}h | 步长={args.step}s | Cd={args.cd}")
+    print("=" * 75)
+
+    predictor = UnifiedOrbitPredictor(
+        integrator=args.integrator,
+        attitude_mode=args.mode,
+        cd=args.cd,
+    )
+    res = predictor.predict(
+        initial_state_eci=y0,
+        epoch_jd=prop.epoch_jd,
+        duration_hours=args.hours,
+        dt_step=args.step,
+    )
+    out_file = os.path.join(PROJECT_ROOT, "data", "results", args.out)
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(res, f, indent=2)
+
+    print(f"✓ 预测计算成功 (耗时: {res['wall_time_ms']:.2f} ms):")
+    print(f"  - 轨道状态点数: {len(res['states_eci'])}")
+    print(f"  - 近地点高度: {res['perigee']['alt_km']:.2f} km")
+    print(f"  - 远地点高度: {res['apogee']['alt_km']:.2f} km")
+    print(f"  - 预测星历已保存至: {out_file}\n")
+
+
+def cmd_ingest(args):
+    """Ingest Real Satellite Telemetry / Remote Sensing Data."""
+    import json
+    from service.telemetry_interface import global_telemetry_manager
+
+    if not os.path.exists(args.file):
+        print(f"❌ 找不到遥测数据文件: {args.file}")
+        return
+
+    with open(args.file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    sat_id = data.get("sat_id", args.sat)
+    data_type = data.get("data_type", args.type)
+    records = data.get("records", [])
+
+    print(f"📥 正在录入遥测观测数据: {args.file} (卫星: {sat_id}, 类型: {data_type})...")
+    res = global_telemetry_manager.ingest_observations(
+        sat_id=sat_id,
+        data_type=data_type,
+        records=records,
+        metadata=data.get("metadata", {}),
+    )
+    print("✓ 遥测数据成功录入统一预测引擎:")
+    print(json.dumps(res, indent=2, ensure_ascii=False))
+
+
 def main():
     parser = argparse.ArgumentParser(
-        prog="SatProp-OrbitAttitude",
-        description="SatProp-OrbitAttitude: Satellite Ephemeris Prediction & Attitude Simulation Platform",
+        description="SatProp-OrbitAttitude: 统一航天任务控制命令行主入口",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
+    subparsers = parser.add_subparsers(dest="command", help="子命令")
 
     # 1. server
-    p_server = subparsers.add_parser("server", help="Launch 3D WebGL Dashboard & API Server")
-    p_server.add_argument("--port", type=int, default=8080, help="Server port (default: 8080)")
+    subparsers.add_parser("server", help="启动 3D WebGL 可视化推演平台与 RESTful API 后端服务")
 
     # 2. pipeline
-    p_pipe = subparsers.add_parser("pipeline", help="Run end-to-end orbit prediction & validation pipeline")
-    p_pipe.add_argument("--sat", type=str, default="cartosat2", help="Satellite ID (cartosat2, iss, tiangong)")
-    p_pipe.add_argument("--hours", type=float, default=2.0, help="Simulation duration in hours")
-    p_pipe.add_argument("--step", type=float, default=30.0, help="Time step in seconds")
-    p_pipe.add_argument("--model", type=str, default="LSTM", choices=["LSTM", "TRANSFORMER"], help="ML model type")
-    p_pipe.add_argument("--epochs", type=int, default=35, help="Training epochs")
-    p_pipe.add_argument("--output", type=str, default="pipeline_result.json", help="Result JSON filename")
+    p_pipe = subparsers.add_parser("pipeline", help="运行端到端轨道推演与全流程管道")
+    p_pipe.add_argument("--sat", type=str, default="cartosat2", help="卫星ID")
+    p_pipe.add_argument("--hours", type=float, default=2.0, help="推演时长 (小时)")
+    p_pipe.add_argument("--step", type=float, default=30.0, help="步长 (秒)")
+    p_pipe.add_argument("--model", type=str, default="LSTM", choices=["LSTM", "TRANSFORMER"], help="神经网络残差模型")
+    p_pipe.add_argument("--epochs", type=int, default=40, help="训练轮数")
+    p_pipe.add_argument("--output", type=str, default="pipeline_result.json", help="输出文件名")
 
-    # 3. benchmark
-    p_bench = subparsers.add_parser("benchmark", help="Run numerical integrators benchmark (RK4 vs RKF78 vs ABM4)")
-    p_bench.add_argument("--sat", type=str, default="cartosat2", help="Satellite ID")
-    p_bench.add_argument("--hours", type=float, default=6.0, help="Benchmark arc duration in hours")
-    p_bench.add_argument("--step", type=float, default=30.0, help="Integration step in seconds")
-    p_bench.add_argument("--out", type=str, default="benchmark_results.json", help="Output JSON filename")
+    # 3. predict (Unified Model)
+    p_pred = subparsers.add_parser("predict", help="执行高保真统一轨道预测数学模型 (UnifiedOrbitPredictor)")
+    p_pred.add_argument("--sat", type=str, default="cartosat2", help="卫星ID")
+    p_pred.add_argument("--integrator", type=str, default="RKF78", choices=["RKF78", "RK4", "ABM4"], help="数值积分器")
+    p_pred.add_argument("--mode", type=str, default="NADIR", choices=["NADIR", "SUN"], help="姿态指向模式")
+    p_pred.add_argument("--hours", type=float, default=2.5, help="预测时长 (小时)")
+    p_pred.add_argument("--step", type=float, default=30.0, help="时间步长 (秒)")
+    p_pred.add_argument("--cd", type=float, default=2.2, help="大气阻力系数")
+    p_pred.add_argument("--out", type=str, default="unified_prediction.json", help="输出文件名")
 
-    # 4. train
-    p_train = subparsers.add_parser("train", help="Train LSTM or Transformer residual model")
-    p_train.add_argument("--sat", type=str, default="cartosat2", help="Satellite ID")
-    p_train.add_argument("--model", type=str, default="LSTM", choices=["LSTM", "TRANSFORMER"], help="Model type")
-    p_train.add_argument("--hours", type=float, default=3.0, help="Dataset duration in hours")
-    p_train.add_argument("--step", type=float, default=30.0, help="Time step in seconds")
-    p_train.add_argument("--seq_len", type=int, default=12, help="Sequence window length")
-    p_train.add_argument("--epochs", type=int, default=45, help="Training epochs")
-    p_train.add_argument("--batch_size", type=int, default=16, help="Batch size")
-    p_train.add_argument("--lr", type=float, default=2e-3, help="Learning rate")
-    p_train.add_argument("--save", type=str, default=None, help="Checkpoint save path")
+    # 4. ingest (Real Telemetry)
+    p_ing = subparsers.add_parser("ingest", help="录入真实卫星轨道遥感/GPS/雷达观测数据文件")
+    p_ing.add_argument("--file", type=str, required=True, help="输入数据 JSON 文件路径")
+    p_ing.add_argument("--sat", type=str, default="custom_sat", help="卫星ID")
+    p_ing.add_argument("--type", type=str, default="STATE_VECTORS", choices=["STATE_VECTORS", "GEODETIC_GPS", "RADAR_AZ_EL_RANGE"], help="数据格式")
 
-    # 5. ops
-    p_ops = subparsers.add_parser("ops", help="Compute ground station passes and constellation ISL topology")
-    p_ops.add_argument("--sat", type=str, default="cartosat2", help="Satellite ID")
-    p_ops.add_argument("--hours", type=float, default=12.0, help="Analysis duration in hours")
-    p_ops.add_argument("--step", type=float, default=30.0, help="Time step in seconds")
-    p_ops.add_argument("--min_el", type=float, default=5.0, help="Min elevation mask in degrees")
-    p_ops.add_argument("--isl_range_km", type=float, default=5000.0, help="Max ISL range in km")
-    p_ops.add_argument("--out", type=str, default="mission_ops_results.json", help="Output JSON filename")
+    # 5. benchmark
+    p_bench = subparsers.add_parser("benchmark", help="运行数值积分方法横向性能评测")
+    p_bench.add_argument("--sat", type=str, default="cartosat2", help="卫星ID")
+    p_bench.add_argument("--hours", type=float, default=6.0, help="评测时长 (小时)")
+    p_bench.add_argument("--step", type=float, default=30.0, help="步长 (秒)")
+    p_bench.add_argument("--out", type=str, default="benchmark_results.json", help="输出文件名")
 
-    # 6. attitude
-    p_att = subparsers.add_parser("attitude", help="Simulate satellite 3-axis attitude dynamics")
-    p_att.add_argument("--sat", type=str, default="cartosat2", help="Satellite ID")
-    p_att.add_argument("--mode", type=str, default="NADIR", choices=["NADIR", "SUN"], help="Attitude mode")
-    p_att.add_argument("--hours", type=float, default=1.5, help="Simulation duration in hours")
-    p_att.add_argument("--step", type=float, default=10.0, help="Time step in seconds")
-    p_att.add_argument("--out", type=str, default="attitude_simulation.json", help="Output JSON filename")
+    # 6. train
+    p_train = subparsers.add_parser("train", help="离线训练轨道残差修正神经网络")
+    p_train.add_argument("--sat", type=str, default="cartosat2", help="卫星ID")
+    p_train.add_argument("--model", type=str, default="LSTM", choices=["LSTM", "TRANSFORMER"], help="模型结构")
+    p_train.add_argument("--hours", type=float, default=3.0, help="时长 (小时)")
+    p_train.add_argument("--step", type=float, default=30.0, help="步长 (秒)")
+    p_train.add_argument("--seq_len", type=int, default=12, help="时序窗口")
+    p_train.add_argument("--epochs", type=int, default=45, help="轮数")
+    p_train.add_argument("--batch_size", type=int, default=16, help="批量大小")
+    p_train.add_argument("--lr", type=float, default=2e-3, help="学习率")
+    p_train.add_argument("--save", type=str, default=None, help="模型权重保存路径")
 
-    # 7. test
-    subparsers.add_parser("test", help="Run automated test suite")
+    # 7. ops
+    p_ops = subparsers.add_parser("ops", help="解算地面测控过境窗口与星座通信链路拓扑")
+    p_ops.add_argument("--sat", type=str, default="cartosat2", help="卫星ID")
+    p_ops.add_argument("--hours", type=float, default=12.0, help="分析时长 (小时)")
+    p_ops.add_argument("--step", type=float, default=30.0, help="步长 (秒)")
+    p_ops.add_argument("--min_el", type=float, default=5.0, help="最小截止仰角 (度)")
+    p_ops.add_argument("--isl_range_km", type=float, default=5000.0, help="最大星间链路距离 (km)")
+    p_ops.add_argument("--out", type=str, default="mission_ops_results.json", help="输出文件名")
+
+    # 8. attitude
+    p_att = subparsers.add_parser("attitude", help="仿真卫星三轴姿态动力学与反作用飞轮控制")
+    p_att.add_argument("--sat", type=str, default="cartosat2", help="卫星ID")
+    p_att.add_argument("--mode", type=str, default="NADIR", choices=["NADIR", "SUN"], help="指向模式")
+    p_att.add_argument("--hours", type=float, default=1.5, help="时长 (小时)")
+    p_att.add_argument("--step", type=float, default=10.0, help="步长 (秒)")
+    p_att.add_argument("--out", type=str, default="attitude_simulation.json", help="输出文件名")
+
+    # 9. test
+    subparsers.add_parser("test", help="执行自动化单元测试套件")
 
     args = parser.parse_args()
     if not args.command:
@@ -183,6 +267,8 @@ def main():
     handlers = {
         "server": cmd_server,
         "pipeline": cmd_pipeline,
+        "predict": cmd_predict,
+        "ingest": cmd_ingest,
         "benchmark": cmd_benchmark,
         "train": cmd_train,
         "ops": cmd_ops,

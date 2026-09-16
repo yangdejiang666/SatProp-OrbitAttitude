@@ -24,6 +24,8 @@ from analysis.benchmark import run_integrator_benchmark
 from analysis.visibility import compute_all_station_windows
 from analysis.isl_topology import analyze_constellation_isl_topology
 from service.data_manager import SatelliteDataManager
+from propagators.unified_predictor import UnifiedOrbitPredictor
+from service.telemetry_interface import global_telemetry_manager
 
 WEB3D_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web3d"))
 
@@ -42,6 +44,16 @@ def index():
 @app.route("/<path:path>")
 def static_files(path):
     return send_from_directory(WEB3D_DIR, path)
+
+
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    return jsonify({
+        "status": "online",
+        "service": "SatProp-OrbitAttitude",
+        "version": "1.0.0",
+        "satellites_loaded": len(data_manager.satellites),
+    })
 
 
 @app.route("/api/satellites", methods=["GET"])
@@ -301,7 +313,203 @@ def station_keeping():
     return jsonify(plan)
 
 
+@app.route("/api/predict/synthetic_calibration", methods=["POST"])
+def predict_synthetic_calibration():
+    """
+    Generates tunable synthetic tracking observations, calibrates dynamic parameters,
+    and runs the Unified Orbit Predictor to demonstrate precision enhancement.
+    """
+    data = request.get_json(force=True)
+    sat_id = data.get("sat_id", "cartosat2")
+    obs_count = int(data.get("obs_count", 10))
+    noise_sigma_m = float(data.get("noise_sigma_m", 5.0))
+    cd_input = float(data.get("cd_multiplier", 2.2))
+    attitude_mode = data.get("attitude_mode", "NADIR").upper()
+    ml_enabled = bool(data.get("ml_enabled", True))
+    duration_hours = float(data.get("duration_hours", 2.5))
+    dt_step = float(data.get("dt_step", 30.0))
+
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": f"Satellite {sat_id} not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    sgp4_prop: SGP4Propagator = sat_entry["propagator"]
+    epoch_jd = sgp4_prop.epoch_jd
+    y0_eci = sgp4_prop.get_initial_state_eci()
+    t_span = duration_hours * 3600.0
+
+    # 1. Ground truth reference using high-precision Cowell RKF78
+    cowell_truth = CowellPropagator(integrator="RKF78", tol=1e-8, use_j2=True, use_drag=True)
+    truth_res = cowell_truth.propagate(t_span, dt_step, epoch_jd, initial_state_eci=y0_eci)
+
+    # 2. SGP4 Baseline
+    sgp4_res = sgp4_prop.propagate(t_span, dt_step, epoch_jd)
+
+    # 3. Retrieve ML model if cached
+    cached_ml = ml_cache.get(sat_id)
+    ml_model = cached_ml["model"] if (ml_enabled and cached_ml) else None
+    ml_scalers = cached_ml["scalers"] if (ml_enabled and cached_ml) else None
+
+    # 4. Instantiate Unified Orbit Predictor
+    predictor = UnifiedOrbitPredictor(
+        integrator=data.get("integrator", "RKF78"),
+        use_j2=data.get("use_j2", True),
+        use_j3=data.get("use_j3", True),
+        use_j4=data.get("use_j4", True),
+        use_drag=data.get("use_drag", True),
+        use_sun=data.get("use_sun", True),
+        use_moon=data.get("use_moon", True),
+        use_srp=data.get("use_srp", True),
+        enable_attitude_coupling=True,
+        attitude_mode=attitude_mode,
+        cd=cd_input,
+        ml_model=ml_model,
+        ml_scalers=ml_scalers,
+    )
+
+    # 5. Generate tunable synthetic observations
+    synthetic_obs = predictor.generate_synthetic_observations(
+        truth_states_eci=truth_res["states_eci"],
+        times_s=truth_res["times_s"],
+        obs_count=obs_count,
+        noise_sigma_m=noise_sigma_m,
+        arc_duration_s=min(2700.0, t_span * 0.4),
+    )
+
+    # 6. Predict forward trajectory with observation calibration
+    pred_res = predictor.predict(
+        initial_state_eci=y0_eci,
+        epoch_jd=epoch_jd,
+        duration_hours=duration_hours,
+        dt_step=dt_step,
+        observations=synthetic_obs,
+        truth_reference_eci=truth_res["states_eci"],
+    )
+
+    # Compute improvement metrics vs SGP4 uncalibrated baseline
+    err_sgp4 = np.linalg.norm(sgp4_res["states_eci"][:, 0:3] - truth_res["states_eci"][:, 0:3], axis=1)
+    err_model = np.linalg.norm(np.array(pred_res["states_eci"])[:, 0:3] - truth_res["states_eci"][:, 0:3], axis=1)
+
+    sigma1_sgp4 = float(np.percentile(err_sgp4, 68.27))
+    sigma1_model = float(np.percentile(err_model, 68.27))
+    reduction_pct = float(max(0.0, (sigma1_sgp4 - sigma1_model) / sigma1_sgp4 * 100.0))
+
+    accuracy_report = {
+        "uncorrected_sgp4_sigma1_m": sigma1_sgp4,
+        "calibrated_model_sigma1_m": sigma1_model,
+        "reduction_pct": reduction_pct,
+        "max_error_m": float(np.max(err_model)),
+        "mean_error_m": float(np.mean(err_model)),
+    }
+
+    return jsonify({
+        "satellite": sat_entry["name"],
+        "status": "success",
+        "calibrated_orbit_eci": pred_res["states_eci"],
+        "baseline_sgp4_eci": sgp4_res["states_eci"].tolist(),
+        "truth_eci": truth_res["states_eci"].tolist(),
+        "synthetic_observations": synthetic_obs,
+        "calibration_summary": pred_res["calibration_summary"],
+        "accuracy_report": accuracy_report,
+        "predicted_ric_residuals": pred_res["predicted_ric_residuals"],
+        "geodetic": pred_res["geodetic"],
+        "times_s": pred_res["times_s"],
+        "perigee": pred_res["perigee"],
+        "apogee": pred_res["apogee"],
+        "active_cd": pred_res["active_cd"],
+        "wall_time_ms": pred_res["wall_time_ms"],
+    })
+
+
+@app.route("/api/predict/unified", methods=["POST"])
+def predict_unified():
+    """
+    Direct endpoint to run the Unified Astrodynamics Orbit Prediction Model.
+    """
+    data = request.get_json(force=True)
+    sat_id = data.get("sat_id", "cartosat2")
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": f"Satellite {sat_id} not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    prop: SGP4Propagator = sat_entry["propagator"]
+    y0_eci = prop.get_initial_state_eci()
+
+    predictor = UnifiedOrbitPredictor(
+        integrator=data.get("integrator", "RKF78"),
+        use_j2=data.get("use_j2", True),
+        use_j3=data.get("use_j3", True),
+        use_j4=data.get("use_j4", True),
+        use_drag=data.get("use_drag", True),
+        use_sun=data.get("use_sun", True),
+        use_moon=data.get("use_moon", True),
+        use_srp=data.get("use_srp", True),
+        attitude_mode=data.get("attitude_mode", "NADIR"),
+        cd=float(data.get("cd", 2.2)),
+        mass_kg=float(data.get("mass_kg", 680.0)),
+    )
+
+    res = predictor.predict(
+        initial_state_eci=y0_eci,
+        epoch_jd=prop.epoch_jd,
+        duration_hours=float(data.get("duration_hours", 2.5)),
+        dt_step=float(data.get("dt_step", 30.0)),
+    )
+    return jsonify(res)
+
+
+@app.route("/api/telemetry/ingest_real", methods=["POST"])
+def ingest_real_telemetry():
+    """
+    Standard interface endpoint for ingesting real-world satellite observation data
+    (State vectors, Geodetic GNSS fixes, Radar tracking, TLE).
+    """
+    payload = request.get_json(force=True)
+    sat_id = payload.get("sat_id", "custom_satellite")
+    data_type = payload.get("data_type", "STATE_VECTORS")
+    records = payload.get("records", [])
+    metadata = payload.get("metadata", {})
+
+    if not records:
+        return jsonify({"error": "No observation records provided in payload"}), 400
+
+    try:
+        summary = global_telemetry_manager.ingest_observations(
+            sat_id=sat_id,
+            data_type=data_type,
+            records=records,
+            metadata=metadata,
+        )
+        return jsonify({"status": "success", "summary": summary})
+    except Exception as e:
+        return jsonify({"error": f"Ingestion failed: {str(e)}"}), 400
+
+
+@app.route("/api/telemetry/predict_from_real", methods=["POST"])
+def predict_from_real_telemetry():
+    """
+    Forecasts future orbit trajectory based on previously ingested real-world telemetry fixes.
+    """
+    payload = request.get_json(force=True)
+    sat_id = payload.get("sat_id", "custom_satellite")
+    duration_hours = float(payload.get("duration_hours", 2.5))
+    dt_step = float(payload.get("dt_step", 30.0))
+    model_config = payload.get("model_config", {})
+
+    try:
+        res = global_telemetry_manager.predict_from_ingested_data(
+            sat_id=sat_id,
+            duration_hours=duration_hours,
+            dt_step=dt_step,
+            model_config=model_config,
+        )
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     print(f"Starting SatProp-OrbitAttitude Server on port {port}...")
     app.run(host="0.0.0.0", port=port, debug=False)
+

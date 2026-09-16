@@ -200,7 +200,7 @@ def run_complete_pipeline(
     return results_summary
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Run Full Orbit Pipeline")
     parser.add_argument("--sat", type=str, default="cartosat2")
     parser.add_argument("--hours", type=float, default=2.0)
@@ -209,7 +209,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=35)
     parser.add_argument("--output", type=str, default=None)
     args = parser.parse_args()
-    run_complete_pipeline(
+    return run_complete_pipeline(
         sat_id=args.sat,
         duration_hours=args.hours,
         dt_step=args.step,
@@ -217,3 +217,7 @@ if __name__ == "__main__":
         epochs=args.epochs,
         output_json=args.output,
     )
+
+
+if __name__ == "__main__":
+    main()
