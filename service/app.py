@@ -92,6 +92,20 @@ def get_celestial_ephemeris():
     return jsonify(data)
 
 
+@app.route("/api/constellation/orbits", methods=["GET", "POST"])
+def get_constellation_orbits():
+    """
+    Returns real, continuous 3D orbital trajectories and state vectors
+    for all active satellites in orbit simultaneously.
+    """
+    data = data_manager.propagate_constellation()
+    return jsonify({
+        "status": "success",
+        "total_active_satellites": len(data),
+        "satellites": data,
+    })
+
+
 @app.route("/api/telemetry/ingest", methods=["POST"])
 def ingest_telemetry():
     payload = request.get_json(force=True)

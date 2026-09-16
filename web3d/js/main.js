@@ -15,9 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
         currentPropagator: 'HYBRID_ML',
         attitudeMode: 'NADIR',
         isPlaying: true,
-        playbackSpeed: 1.0,
-        speedMultiplierIdx: 0,
-        currentStepIdx: 0,
+        warpMultiplier: 1.0,
+        simTimeSec: 0.0,
         showHud: true,
         layerVisibility: {
             sgp4: true,
@@ -28,8 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
         trajectoryData: null,
         attitudeData: null,
         visibilityData: null,
+        constellationData: null,
         baseEpochMjd: 61299.8,
-        baseEpochDate: new Date('2026-09-16T11:20:00Z'),
+        baseEpochDate: new Date(),
     };
 
     // UI elements
@@ -38,11 +38,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const attModeSelect = document.getElementById('select-attitude-mode');
     const cameraModeSelect = document.getElementById('select-camera-mode');
 
-    const playPauseBtn = document.getElementById('btn-play-pause');
-    const stepBackBtn = document.getElementById('btn-step-back');
-    const stepFwdBtn = document.getElementById('btn-step-fwd');
-    const speedBadge = document.getElementById('badge-speed');
-    const timeSlider = document.getElementById('time-slider');
+    const btnWarpPause = document.getElementById('btn-warp-pause');
+    const btnWarpNow = document.getElementById('btn-warp-now');
+    const btnViewConstellation = document.getElementById('btn-view-constellation');
+    const dockStreamStatus = document.getElementById('dock-stream-status');
+    const dockOrbitPhaseText = document.getElementById('dock-orbit-phase-text');
+    const dockOrbitPeriodProgress = document.getElementById('dock-orbit-period-progress');
+    const dockOrbitProgressBar = document.getElementById('dock-orbit-progress-bar');
+    const dockConstellationInfo = document.getElementById('dock-constellation-info');
 
     const btnLayerSgp4 = document.getElementById('btn-layer-sgp4');
     const btnLayerTruth = document.getElementById('btn-layer-truth');
@@ -131,6 +134,23 @@ document.addEventListener('DOMContentLoaded', () => {
             satSelect.value = state.currentSatId;
         } catch (e) {
             console.error('Failed to load satellites:', e);
+        }
+    }
+
+    // 2.2 Load Real Multi-Satellite Constellation Orbits
+    async function loadConstellation() {
+        try {
+            const res = await fetch('/api/constellation/orbits');
+            const data = await res.json();
+            if (data && data.satellites) {
+                state.constellationData = data.satellites;
+                scene.updateConstellation(data.satellites);
+                if (dockConstellationInfo) {
+                    dockConstellationInfo.textContent = `在轨全景监测: ${data.total_active_satellites} 颗实测空间飞行器多轨道解算`;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load constellation orbits:', e);
         }
     }
 
@@ -317,123 +337,205 @@ document.addEventListener('DOMContentLoaded', () => {
         return { elevationDeg: elDeg, slantRangeKm: rho };
     }
 
-    // 6. Real-time Telemetry Tick & Satellite Position Update
-    function tick() {
-        if (!state.trajectoryData || !state.trajectoryData.states_eci || state.trajectoryData.states_eci.length === 0) return;
+    // 6. Real-time Continuous Astrodynamics Clock & Telemetry Tick
+    let lastWallTime = performance.now();
 
-        const maxIdx = state.trajectoryData.states_eci.length - 1;
+    function tick() {
+        const now = performance.now();
+        const dtWallSec = Math.min((now - lastWallTime) / 1000.0, 0.25);
+        lastWallTime = now;
 
         if (state.isPlaying) {
-            state.currentStepIdx = (state.currentStepIdx + 1) % (maxIdx + 1);
-            timeSlider.value = state.currentStepIdx;
+            state.simTimeSec += dtWallSec * state.warpMultiplier;
         }
 
-        const idx = state.currentStepIdx;
-        const r_eci = state.trajectoryData.states_eci[idx].slice(0, 3);
-        const v_eci = state.trajectoryData.states_eci[idx].slice(3, 6);
-        const geod = state.trajectoryData.geodetic[idx];
-        const curTimeS = state.trajectoryData.times_s[idx];
-
-        // Attitude quaternion at current step
-        let quat = null;
-        let euler = [0, 0, 0];
-        if (state.attitudeData && state.attitudeData.quaternions && state.attitudeData.quaternions.length > idx) {
-            quat = state.attitudeData.quaternions[idx];
-            euler = state.attitudeData.euler_angles_deg[idx];
-        }
-
-        // Update 3D satellite position and orientation
-        scene.setSatelliteState(r_eci, quat);
-
-        // Update Telemetry Panel values
-        const alt_km = geod[2] / 1000.0;
-        const vel_kms = Math.sqrt(v_eci[0]**2 + v_eci[1]**2 + v_eci[2]**2) / 1000.0;
-        const lat = geod[0];
-        const lon = geod[1];
-
-        if (elAlt) elAlt.textContent = alt_km.toFixed(1);
-        if (elVel) elVel.textContent = vel_kms.toFixed(3);
-        if (elLat) elLat.textContent = (lat >= 0 ? `${lat.toFixed(2)}°N` : `${Math.abs(lat).toFixed(2)}°S`);
-        if (elLon) elLon.textContent = (lon >= 0 ? `${lon.toFixed(2)}°E` : `${Math.abs(lon).toFixed(2)}°W`);
-
-        // Keplerian orbital elements
-        if (state.trajectoryData.coes && state.trajectoryData.coes.length > 0) {
-            const coe = state.trajectoryData.coes[0];
-            if (elInc) elInc.textContent = coe.i_deg.toFixed(2);
-            if (elEcc) elEcc.textContent = coe.e.toFixed(5);
-            if (elSma) elSma.textContent = (coe.a / 1000.0).toFixed(1);
-            if (elPeriod) elPeriod.textContent = (coe.period_s / 60.0).toFixed(1);
-        }
-
-        // Attitude Euler
-        if (elRoll) elRoll.textContent = euler[0].toFixed(1);
-        if (elPitch) elPitch.textContent = euler[1].toFixed(1);
-        if (elYaw) elYaw.textContent = euler[2].toFixed(1);
-
-        if (elBarRoll) elBarRoll.style.width = Math.min(100, Math.abs(euler[0]) * 2) + '%';
-        if (elBarPitch) elBarPitch.style.width = Math.min(100, Math.abs(euler[1]) * 2) + '%';
-        if (elBarYaw) elBarYaw.style.width = Math.min(100, Math.abs(euler[2]) * 2) + '%';
-
-        // Update 3D Floating HUD
-        if (state.showHud && satHudEl && scene.satGroup) {
-            const screenCoords = scene.getScreenCoordinates(scene.satGroup.position);
-            if (screenCoords.visible) {
-                satHudEl.style.display = 'block';
-                satHudEl.style.left = `${screenCoords.x + 18}px`;
-                satHudEl.style.top = `${screenCoords.y - 32}px`;
-
-                if (hudSatName) hudSatName.textContent = `🛰️ ${state.trajectoryData.satellite || state.currentSatId.toUpperCase()}`;
-                if (hudAlt) hudAlt.textContent = alt_km.toFixed(1);
-                if (hudVel) hudVel.textContent = vel_kms.toFixed(2);
-                if (hudLat) hudLat.textContent = (lat >= 0 ? `${lat.toFixed(1)}°N` : `${Math.abs(lat).toFixed(1)}°S`);
-
-                if (hudErrorVal && state.trajectoryData.predicted_ric_residuals && state.trajectoryData.predicted_ric_residuals.length > idx) {
-                    const rErr = state.trajectoryData.predicted_ric_residuals[idx];
-                    const totalErr = Math.sqrt(rErr[0]**2 + rErr[1]**2 + rErr[2]**2);
-                    hudErrorVal.textContent = `Δpos: ${totalErr.toFixed(1)} m`;
-                }
-            } else {
-                satHudEl.style.display = 'none';
-            }
-        } else if (satHudEl) {
-            satHudEl.style.display = 'none';
-        }
-
-        // Ground station active tracking check & dynamic laser beam
-        let activeSt = null;
-        let highestEl = -999.0;
-        let activeRange = 0;
-
-        for (const st of groundStations) {
-            const res = calculateElevation(lat, lon, alt_km, st.lat, st.lon);
-            if (res.elevationDeg > 5.0 && res.elevationDeg > highestEl) {
-                highestEl = res.elevationDeg;
-                activeRange = res.slantRangeKm;
-                activeSt = st;
-            }
-        }
-
-        if (activeSt) {
-            if (bannerContact) {
-                bannerContact.style.display = 'flex';
-                if (bannerStationName) bannerStationName.textContent = `${activeSt.name} Station`;
-                if (bannerEl) bannerEl.textContent = `${highestEl.toFixed(1)}°`;
-                if (bannerRange) bannerRange.textContent = `${activeRange.toFixed(0)} km`;
-            }
-            scene.setTrackingBeam(true, activeSt.name);
-        } else {
-            if (bannerContact) bannerContact.style.display = 'none';
-            scene.setTrackingBeam(false);
-        }
-
-        // Advance Mission Clock (UTC & MJD)
-        const currentSimMs = state.baseEpochDate.getTime() + curTimeS * 1000;
+        // 1. Advance Mission Clock (UTC & MJD)
+        const currentSimMs = state.baseEpochDate.getTime() + state.simTimeSec * 1000;
         const curDate = new Date(currentSimMs);
         const isoString = curDate.toISOString().replace('T', ' ').replace(/\..+/, '') + ' UTC';
         if (clockUtc) clockUtc.textContent = isoString;
 
-        const curMjd = state.baseEpochMjd + (curTimeS / 86400.0);
+        const curMjd = state.baseEpochMjd + (state.simTimeSec / 86400.0);
         if (clockMjd) clockMjd.textContent = `MJD: ${curMjd.toFixed(5)}`;
+
+        if (dockStreamStatus) {
+            if (state.warpMultiplier === 1.0) {
+                dockStreamStatus.textContent = state.isPlaying ? '真实遥测流实时同步 (1:1 LIVE)' : '实时遥测流已暂停';
+            } else {
+                dockStreamStatus.textContent = state.isPlaying ? `动力学超光速推演 (${state.warpMultiplier}x WARP)` : '动力学推演已暂停';
+            }
+        }
+
+        // 2. Update ALL Constellation Satellites along their real orbital ephemerides
+        if (state.constellationData) {
+            Object.keys(state.constellationData).forEach(s_id => {
+                const satInfo = state.constellationData[s_id];
+                const states = satInfo.states_eci;
+                const times = satInfo.times_s;
+                const periodS = (satInfo.period_min || 92.0) * 60.0;
+
+                if (states && states.length > 1 && times && times.length > 1) {
+                    const tMod = ((state.simTimeSec % periodS) + periodS) % periodS;
+                    const maxT = times[times.length - 1];
+                    const tNormalized = (tMod / periodS) * maxT;
+
+                    const stepDt = times.length > 1 ? (times[1] - times[0]) : 45.0;
+                    const fracIdx = tNormalized / stepDt;
+                    const k0 = Math.min(Math.floor(fracIdx), states.length - 1);
+                    const k1 = Math.min(k0 + 1, states.length - 1);
+                    const alpha = Math.max(0, Math.min(1, fracIdx - k0));
+
+                    const p0 = states[k0];
+                    const p1 = states[k1];
+                    const interpR = [
+                        (1 - alpha) * p0[0] + alpha * p1[0],
+                        (1 - alpha) * p0[1] + alpha * p1[1],
+                        (1 - alpha) * p0[2] + alpha * p1[2],
+                    ];
+                    scene.updateConstellationSatellitePosition(s_id, interpR);
+                }
+            });
+        }
+
+        // 3. Update Focused Satellite High-Precision Telemetry & 3D Attitude
+        if (state.trajectoryData && state.trajectoryData.states_eci && state.trajectoryData.states_eci.length > 0) {
+            const traj = state.trajectoryData;
+            const states = traj.states_eci;
+            const times = traj.times_s;
+            const geodetic = traj.geodetic;
+
+            let periodS = 5500.0;
+            if (traj.coes && traj.coes.length > 0 && traj.coes[0].period_s) {
+                periodS = traj.coes[0].period_s;
+            } else if (state.constellationData && state.constellationData[state.currentSatId]) {
+                periodS = state.constellationData[state.currentSatId].period_min * 60.0;
+            }
+
+            const tMod = ((state.simTimeSec % periodS) + periodS) % periodS;
+            const progressRatio = tMod / periodS;
+            const orbitNuDeg = progressRatio * 360.0;
+
+            if (dockOrbitPhaseText) dockOrbitPhaseText.textContent = `轨道真近点角 ν: ${orbitNuDeg.toFixed(1)}°`;
+            if (dockOrbitPeriodProgress) dockOrbitPeriodProgress.textContent = `单轨运转: ${(progressRatio * 100).toFixed(1)}%`;
+            if (dockOrbitProgressBar) dockOrbitProgressBar.style.width = `${(progressRatio * 100).toFixed(1)}%`;
+
+            const maxT = times && times.length > 0 ? times[times.length - 1] : periodS;
+            const tNormalized = progressRatio * maxT;
+            const stepDt = (times && times.length > 1) ? (times[1] - times[0]) : 45.0;
+            const fracIdx = tNormalized / stepDt;
+            const k0 = Math.min(Math.floor(fracIdx), states.length - 1);
+            const k1 = Math.min(k0 + 1, states.length - 1);
+            const alpha = Math.max(0, Math.min(1, fracIdx - k0));
+
+            const p0 = states[k0];
+            const p1 = states[k1];
+            const r_eci = [
+                (1 - alpha) * p0[0] + alpha * p1[0],
+                (1 - alpha) * p0[1] + alpha * p1[1],
+                (1 - alpha) * p0[2] + alpha * p1[2],
+            ];
+            const v_eci = [
+                (1 - alpha) * p0[3] + alpha * p1[3],
+                (1 - alpha) * p0[4] + alpha * p1[4],
+                (1 - alpha) * p0[5] + alpha * p1[5],
+            ];
+
+            const g0 = geodetic[k0];
+            const g1 = geodetic[k1];
+            const lat = (1 - alpha) * g0[0] + alpha * g1[0];
+            const lon = (1 - alpha) * g0[1] + alpha * g1[1];
+            const alt = (1 - alpha) * g0[2] + alpha * g1[2];
+
+            // Attitude quaternion at current step
+            let quat = null;
+            let euler = [0, 0, 0];
+            if (state.attitudeData && state.attitudeData.quaternions && state.attitudeData.quaternions.length > k0) {
+                quat = state.attitudeData.quaternions[k0];
+                euler = state.attitudeData.euler_angles_deg[k0];
+            }
+
+            // Set focused satellite position and orientation
+            scene.setSatelliteState(r_eci, quat);
+
+            // Update Telemetry Panel values
+            const alt_km = alt / 1000.0;
+            const vel_kms = Math.sqrt(v_eci[0]**2 + v_eci[1]**2 + v_eci[2]**2) / 1000.0;
+
+            if (elAlt) elAlt.textContent = alt_km.toFixed(1);
+            if (elVel) elVel.textContent = vel_kms.toFixed(3);
+            if (elLat) elLat.textContent = (lat >= 0 ? `${lat.toFixed(2)}°N` : `${Math.abs(lat).toFixed(2)}°S`);
+            if (elLon) elLon.textContent = (lon >= 0 ? `${lon.toFixed(2)}°E` : `${Math.abs(lon).toFixed(2)}°W`);
+
+            // Keplerian orbital elements
+            if (traj.coes && traj.coes.length > 0) {
+                const coe = traj.coes[0];
+                if (elInc) elInc.textContent = coe.i_deg.toFixed(2);
+                if (elEcc) elEcc.textContent = coe.e.toFixed(5);
+                if (elSma) elSma.textContent = (coe.a / 1000.0).toFixed(1);
+                if (elPeriod) elPeriod.textContent = (coe.period_s / 60.0).toFixed(1);
+            }
+
+            // Attitude Euler
+            if (elRoll) elRoll.textContent = euler[0].toFixed(1);
+            if (elPitch) elPitch.textContent = euler[1].toFixed(1);
+            if (elYaw) elYaw.textContent = euler[2].toFixed(1);
+
+            if (elBarRoll) elBarRoll.style.width = Math.min(100, Math.abs(euler[0]) * 2) + '%';
+            if (elBarPitch) elBarPitch.style.width = Math.min(100, Math.abs(euler[1]) * 2) + '%';
+            if (elBarYaw) elBarYaw.style.width = Math.min(100, Math.abs(euler[2]) * 2) + '%';
+
+            // Update 3D Floating HUD
+            if (state.showHud && satHudEl && scene.satGroup) {
+                const screenCoords = scene.getScreenCoordinates(scene.satGroup.position);
+                if (screenCoords.visible) {
+                    satHudEl.style.display = 'block';
+                    satHudEl.style.left = `${screenCoords.x + 18}px`;
+                    satHudEl.style.top = `${screenCoords.y - 32}px`;
+
+                    if (hudSatName) hudSatName.textContent = `🛰️ ${traj.satellite || state.currentSatId.toUpperCase()}`;
+                    if (hudAlt) hudAlt.textContent = alt_km.toFixed(1);
+                    if (hudVel) hudVel.textContent = vel_kms.toFixed(2);
+                    if (hudLat) hudLat.textContent = (lat >= 0 ? `${lat.toFixed(1)}°N` : `${Math.abs(lat).toFixed(1)}°S`);
+
+                    if (hudErrorVal && traj.predicted_ric_residuals && traj.predicted_ric_residuals.length > k0) {
+                        const rErr = traj.predicted_ric_residuals[k0];
+                        const totalErr = Math.sqrt(rErr[0]**2 + rErr[1]**2 + rErr[2]**2);
+                        hudErrorVal.textContent = `Δpos: ${totalErr.toFixed(1)} m`;
+                    }
+                } else {
+                    satHudEl.style.display = 'none';
+                }
+            } else if (satHudEl) {
+                satHudEl.style.display = 'none';
+            }
+
+            // Ground station active tracking check & dynamic laser beam
+            let activeSt = null;
+            let highestEl = -999.0;
+            let activeRange = 0;
+
+            for (const st of groundStations) {
+                const res = calculateElevation(lat, lon, alt_km, st.lat, st.lon);
+                if (res.elevationDeg > 5.0 && res.elevationDeg > highestEl) {
+                    highestEl = res.elevationDeg;
+                    activeRange = res.slantRangeKm;
+                    activeSt = st;
+                }
+            }
+
+            if (activeSt) {
+                if (bannerContact) {
+                    bannerContact.style.display = 'flex';
+                    if (bannerStationName) bannerStationName.textContent = `${activeSt.name} Station`;
+                    if (bannerEl) bannerEl.textContent = `${highestEl.toFixed(1)}°`;
+                    if (bannerRange) bannerRange.textContent = `${activeRange.toFixed(0)} km`;
+                }
+                scene.setTrackingBeam(true, activeSt.name);
+            } else {
+                if (bannerContact) bannerContact.style.display = 'none';
+                scene.setTrackingBeam(false);
+            }
+        }
     }
 
     // 7. Event Handlers & User Controls
@@ -442,6 +544,9 @@ document.addEventListener('DOMContentLoaded', () => {
     satSelect.addEventListener('change', async (e) => {
         state.currentSatId = e.target.value;
         scene.switchSatelliteModel(state.currentSatId);
+        if (state.constellationData) {
+            scene.updateConstellation(state.constellationData);
+        }
         await updatePropagation();
         await updateAttitude();
         await loadVisibility();
@@ -698,48 +803,68 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnSyncCelestrak) btnSyncCelestrak.addEventListener('click', triggerCelestrakSync);
     if (btnModalSyncCelestrak) btnModalSyncCelestrak.addEventListener('click', triggerCelestrakSync);
 
-    // Playback controls
-    playPauseBtn.addEventListener('click', () => {
-        state.isPlaying = !state.isPlaying;
-        playPauseBtn.textContent = state.isPlaying ? '⏸' : '▶';
+    // Warp speed selector buttons
+    document.querySelectorAll('.warp-speed-btn[data-warp]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const warp = parseFloat(btn.getAttribute('data-warp'));
+            state.warpMultiplier = warp;
+            state.isPlaying = true;
+            document.querySelectorAll('.warp-speed-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (btnWarpPause) {
+                btnWarpPause.textContent = '⏸ 暂停';
+                btnWarpPause.classList.remove('active');
+            }
+        });
     });
+
+    // Pause / Resume
+    if (btnWarpPause) {
+        btnWarpPause.addEventListener('click', () => {
+            state.isPlaying = !state.isPlaying;
+            btnWarpPause.textContent = state.isPlaying ? '⏸ 暂停' : '▶ 继续';
+            btnWarpPause.classList.toggle('active', !state.isPlaying);
+        });
+    }
 
     window.addEventListener('keydown', (e) => {
         if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
             e.preventDefault();
             state.isPlaying = !state.isPlaying;
-            playPauseBtn.textContent = state.isPlaying ? '⏸' : '▶';
+            if (btnWarpPause) {
+                btnWarpPause.textContent = state.isPlaying ? '⏸ 暂停' : '▶ 继续';
+                btnWarpPause.classList.toggle('active', !state.isPlaying);
+            }
         }
     });
 
-    stepBackBtn.addEventListener('click', () => {
-        if (state.trajectoryData && state.trajectoryData.states_eci) {
-            state.isPlaying = false;
-            playPauseBtn.textContent = '▶';
-            state.currentStepIdx = Math.max(0, state.currentStepIdx - 1);
-            timeSlider.value = state.currentStepIdx;
-        }
-    });
+    // Reset to Real UTC Now
+    if (btnWarpNow) {
+        btnWarpNow.addEventListener('click', () => {
+            state.baseEpochDate = new Date();
+            state.simTimeSec = 0.0;
+            state.warpMultiplier = 1.0;
+            state.isPlaying = true;
+            document.querySelectorAll('.warp-speed-btn').forEach(b => b.classList.remove('active'));
+            const btn1x = document.getElementById('btn-warp-1x');
+            if (btn1x) btn1x.classList.add('active');
+            if (btnWarpPause) {
+                btnWarpPause.textContent = '⏸ 暂停';
+                btnWarpPause.classList.remove('active');
+            }
+        });
+    }
 
-    stepFwdBtn.addEventListener('click', () => {
-        if (state.trajectoryData && state.trajectoryData.states_eci) {
-            state.isPlaying = false;
-            playPauseBtn.textContent = '▶';
-            state.currentStepIdx = Math.min(state.trajectoryData.states_eci.length - 1, state.currentStepIdx + 1);
-            timeSlider.value = state.currentStepIdx;
-        }
-    });
-
-    const speeds = [1, 5, 15, 60, 300];
-    speedBadge.addEventListener('click', () => {
-        state.speedMultiplierIdx = (state.speedMultiplierIdx + 1) % speeds.length;
-        state.playbackSpeed = speeds[state.speedMultiplierIdx];
-        speedBadge.textContent = `${state.playbackSpeed}x`;
-    });
-
-    timeSlider.addEventListener('input', (e) => {
-        state.currentStepIdx = parseInt(e.target.value, 10);
-    });
+    // Panoramic Constellation Overview View
+    if (btnViewConstellation) {
+        btnViewConstellation.addEventListener('click', () => {
+            cameraModeSelect.value = 'FREE';
+            state.cameraMode = 'FREE';
+            scene.setCameraMode('FREE');
+            scene.camera.position.set(45, 22, 45);
+            scene.controls.target.set(0, 0, 0);
+        });
+    }
 
     // 3D HUD toggle
     btnToggleHud.addEventListener('click', () => {
@@ -779,17 +904,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // 8. Launch Application
-    loadSatellites().then(() => {
+    loadSatellites().then(async () => {
         scene.switchSatelliteModel(state.currentSatId);
         updateCelestial();
-        updatePropagation();
-        updateAttitude();
-        loadVisibility();
-        runSyntheticCalibration();
+        await loadConstellation();
+        await updatePropagation();
+        await updateAttitude();
+        await loadVisibility();
+        await runSyntheticCalibration();
     });
 
-    // Telemetry update tick (20Hz)
-    setInterval(tick, 100);
+    // High-precision smooth astrodynamics tick (30Hz)
+    setInterval(tick, 33);
 
     // Sync celestial astronomical positions every 30s
     setInterval(updateCelestial, 30000);

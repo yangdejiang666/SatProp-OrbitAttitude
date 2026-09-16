@@ -138,6 +138,63 @@ class SatelliteDataManager:
             for s in self.satellites.values()
         ]
 
+    def propagate_constellation(self, duration_hours: float = 3.0, dt_step: float = 45.0) -> Dict[str, Any]:
+        """
+        Propagates full 3D orbital trajectories and instantaneous states
+        for all active satellites in the catalog simultaneously.
+        """
+        color_palette = {
+            "tiangong": "#38bdf8",   # Sky Blue / Cyan
+            "iss": "#f59e0b",        # Amber Gold
+            "sentinel2a": "#10b981", # Emerald Green
+            "landsat9": "#f97316",   # Coral Orange
+            "cartosat2": "#eab308",  # Solar Yellow
+            "beidou": "#a855f7",     # MEO Violet
+        }
+
+        results = {}
+        for s_id, sat in self.satellites.items():
+            prop: SGP4Propagator = sat["propagator"]
+            epoch_jd = prop.epoch_jd
+            
+            # Calculate orbital period from mean motion
+            n_rad_s = prop.mean_motion_rad_s if hasattr(prop, "mean_motion_rad_s") else (2.0 * np.pi / 5500.0)
+            period_s = (2.0 * np.pi) / n_rad_s if n_rad_s > 0 else 5500.0
+            
+            # Propagate 1 full closed revolution + margin (120 points) for continuous 3D loop
+            t_span = max(period_s * 1.05, 5400.0)
+            n_pts = 120
+            dt = t_span / float(n_pts)
+            prop_res = prop.propagate(t_span, dt, epoch_jd)
+
+            r_eci_pts = prop_res["states_eci"][:, 0:3].tolist()
+            # Ensure closed loop by appending first point if needed
+            if len(r_eci_pts) > 2:
+                r_eci_pts.append(r_eci_pts[0])
+
+            # Current state at t = 0
+            r0 = prop_res["states_eci"][0, 0:3]
+            v0 = prop_res["states_eci"][0, 3:6]
+            lat0, lon0, alt0 = prop_res["geodetic"][0]
+
+            results[s_id] = {
+                "id": s_id,
+                "name": sat["name"],
+                "satnum": sat["satnum"],
+                "color": color_palette.get(s_id, "#38bdf8"),
+                "period_min": float(period_s / 60.0),
+                "inclination_deg": float(sat["inclination_deg"]),
+                "orbit_points_eci": r_eci_pts,
+                "current_r_eci": r0.tolist(),
+                "current_v_eci": v0.tolist(),
+                "current_geodetic": [float(lat0), float(lon0), float(alt0)],
+                "states_eci": prop_res["states_eci"].tolist(),
+                "geodetic": prop_res["geodetic"].tolist(),
+                "times_s": prop_res["times_s"].tolist(),
+            }
+
+        return results
+
     def ingest_telemetry_frame(self, frame: Dict[str, Any]) -> Dict[str, Any]:
         """
         Ingest real-time remote sensing telemetry frame:

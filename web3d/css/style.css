@@ -712,81 +712,143 @@ body {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
-.dock-playback-group {
+.dock-warp-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 
-.dock-icon-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-xs);
-  background: var(--bg-surface);
+.dock-warp-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.warp-btn-cluster {
+  display: flex;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.85);
   border: 1px solid var(--border-card);
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: var(--shadow-btn);
-  transition: all 0.15s ease;
+  border-radius: var(--radius-xs);
+  padding: 2px;
+  gap: 3px;
 }
 
-.dock-icon-btn:hover {
-  background: var(--bg-surface-hover);
-  border-color: var(--border-strong);
-}
-
-.dock-icon-btn:active {
-  transform: translateY(1px);
-}
-
-.dock-speed-badge {
+.warp-speed-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
   padding: 3px 8px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-xs);
-  color: var(--text-secondary);
+  border-radius: 3px;
   cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.dock-timeline-container {
+.warp-speed-btn:hover {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--text-primary);
+}
+
+.warp-speed-btn.active {
+  background: var(--color-telemetry);
+  color: #0b1120;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(56, 189, 248, 0.4);
+}
+
+.warp-reset-btn {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.warp-reset-btn:hover {
+  background: rgba(245, 158, 11, 0.35);
+  color: #fff;
+}
+
+.dock-status-container {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 12px;
+  min-width: 0;
 }
 
-/* Precision Aerospace Slider */
-.dock-slider {
+.dock-telemetry-stream-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-truth);
+  white-space: nowrap;
+}
+
+.dock-orbit-progress-wrapper {
   flex: 1;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dock-orbit-progress-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.dock-orbit-progress-track {
+  width: 100%;
   height: 4px;
-  background: #334155;
+  background: rgba(51, 65, 85, 0.6);
   border-radius: 2px;
-  outline: none;
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: pointer;
+  overflow: hidden;
 }
 
-.dock-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
+.dock-orbit-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8, #10b981);
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+
+.dock-constellation-counter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.constellation-dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--color-telemetry);
-  border: 2px solid #0f172a;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
-  cursor: grab;
-  transition: transform 0.1s ease;
-}
-
-.dock-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
+  background: #a855f7;
+  box-shadow: 0 0 6px #a855f7;
 }
 
 .dock-tools-group {

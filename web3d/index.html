@@ -324,22 +324,47 @@
         </div>
     </aside>
 
-    <!-- Bottom Mission Control Dock -->
+    <!-- Bottom Mission Control Dock (Real-Time Space Dynamics Warp Controller) -->
     <footer id="bottom-dock" class="glass-panel">
-        <div class="dock-playback-group">
-            <button id="btn-step-back" class="dock-icon-btn" title="单步后退 30秒">⏮</button>
-            <button id="btn-play-pause" class="dock-icon-btn" title="播放/暂停推演 (快捷键: 空格)">⏸</button>
-            <button id="btn-step-fwd" class="dock-icon-btn" title="单步前进 30秒">⏭</button>
-            <span id="badge-speed" class="dock-speed-badge" title="切换模拟步进倍速 (1x/5x/15x/60x/300x)">1x</span>
+        <div class="dock-warp-group">
+            <span class="dock-warp-label">动力学推演倍速:</span>
+            <div class="warp-btn-cluster">
+                <button id="btn-warp-1x" class="warp-speed-btn active" data-warp="1">1x 实时</button>
+                <button id="btn-warp-10x" class="warp-speed-btn" data-warp="10">10x</button>
+                <button id="btn-warp-60x" class="warp-speed-btn" data-warp="60">60x (1分/s)</button>
+                <button id="btn-warp-300x" class="warp-speed-btn" data-warp="300">300x (5分/s)</button>
+                <button id="btn-warp-1200x" class="warp-speed-btn" data-warp="1200">1200x (20分/s)</button>
+                <button id="btn-warp-pause" class="warp-speed-btn" title="暂停/继续动力学积分 (快捷键: 空格)">⏸ 暂停</button>
+                <button id="btn-warp-now" class="warp-reset-btn" title="立即归位至当前真实世界时刻">⏱️ 归位实测时刻</button>
+            </div>
         </div>
 
-        <div class="dock-timeline-container">
-            <input type="range" id="time-slider" class="dock-slider" min="0" max="100" value="0">
+        <div class="dock-status-container">
+            <div class="dock-telemetry-stream-badge">
+                <span class="live-pulse"></span>
+                <span id="dock-stream-status">真实遥测流实时同步</span>
+            </div>
+            <div class="dock-orbit-progress-wrapper">
+                <div class="dock-orbit-progress-info">
+                    <span id="dock-orbit-phase-text">轨道真近点角 ν: 0.0°</span>
+                    <span id="dock-orbit-period-progress">单轨运转: 0.0%</span>
+                </div>
+                <div class="dock-orbit-progress-track">
+                    <div id="dock-orbit-progress-bar" class="dock-orbit-progress-fill"></div>
+                </div>
+            </div>
+            <div class="dock-constellation-counter">
+                <span class="constellation-dot"></span>
+                <span id="dock-constellation-info">在轨全景监测: 7 颗实测空间飞行器多轨道解算</span>
+            </div>
         </div>
 
         <div class="dock-tools-group">
             <button id="btn-quick-closeup" class="dock-pill-btn" title="聚焦近距离观察 3D 卫星结构细节">
                 🔍 卫星特写
+            </button>
+            <button id="btn-view-constellation" class="dock-pill-btn" title="全景视角总览地球周围所有卫星真实轨道">
+                🌌 全景星座
             </button>
             <button id="btn-toggle-hud" class="dock-pill-btn active" title="显示/隐藏 3D 浮动标牌">
                 🏷️ 3D标牌

@@ -29,6 +29,7 @@ class SpaceScene {
         this.createMoon();
         this.createPlanets();
         this.createSatelliteModel(this.currentSatId);
+        this.initConstellation();
         this.initOrbitLines();
         this.createGroundStations();
         this.createTrackingBeam();
@@ -380,12 +381,20 @@ class SpaceScene {
         }
 
         this.attachThrusterFlame(this.satGroup);
-        this.satGroup.scale.set(0.68, 0.68, 0.68);
+        this.satGroup.scale.set(0.20, 0.20, 0.20);
         this.scene.add(this.satGroup);
     }
 
     switchSatelliteModel(satId) {
+        this.currentSatId = satId;
         this.createSatelliteModel(satId);
+        if (this.constellationSatellites) {
+            Object.keys(this.constellationSatellites).forEach(id => {
+                if (this.constellationSatellites[id] && this.constellationSatellites[id].group) {
+                    this.constellationSatellites[id].group.visible = (id !== satId);
+                }
+            });
+        }
         if (this.cameraMode === 'CLOSEUP') {
             this.setCameraMode('CLOSEUP');
         }
@@ -735,6 +744,141 @@ class SpaceScene {
     }
 
     // =========================================================================
+    // Real Multi-Satellite Constellation & Orbits
+    // =========================================================================
+    initConstellation() {
+        this.constellationGroup = new THREE.Group();
+        this.scene.add(this.constellationGroup);
+        this.constellationOrbits = {};
+        this.constellationSatellites = {};
+    }
+
+    updateConstellation(data) {
+        if (!data) return;
+        this.constellationData = data;
+
+        Object.keys(data).forEach(satId => {
+            const satInfo = data[satId];
+            const pts = satInfo.orbit_points_eci;
+            const colorHex = parseInt((satInfo.color || '#38bdf8').replace('#', '0x'), 16);
+
+            // 1. Build or update continuous 3D Orbit Ring
+            if (!this.constellationOrbits[satId]) {
+                const lineMat = new THREE.LineBasicMaterial({
+                    color: colorHex,
+                    transparent: true,
+                    opacity: 0.85,
+                    linewidth: 2
+                });
+                const lineGeo = new THREE.BufferGeometry();
+                const orbitLine = new THREE.Line(lineGeo, lineMat);
+                this.constellationOrbits[satId] = orbitLine;
+                this.constellationGroup.add(orbitLine);
+            }
+
+            if (pts && pts.length > 0) {
+                const positions = new Float32Array(pts.length * 3);
+                for (let i = 0; i < pts.length; i++) {
+                    positions[i * 3] = pts[i][0] * this.scaleRatio;
+                    positions[i * 3 + 1] = pts[i][2] * this.scaleRatio;
+                    positions[i * 3 + 2] = -pts[i][1] * this.scaleRatio;
+                }
+                const line = this.constellationOrbits[satId];
+                line.geometry.dispose();
+                line.geometry = new THREE.BufferGeometry();
+                line.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                line.visible = true;
+            }
+
+            // 2. Build or update 3D Mini Satellite Model + Radiant Beacon
+            if (!this.constellationSatellites[satId]) {
+                const satMiniGroup = new THREE.Group();
+
+                // Core satellite bus
+                const busMat = new THREE.MeshStandardMaterial({
+                    color: 0x94a3b8,
+                    metalness: 0.8,
+                    roughness: 0.3
+                });
+                const bus = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.35), busMat);
+                satMiniGroup.add(bus);
+
+                // Solar panels
+                const solarMat = new THREE.MeshStandardMaterial({
+                    color: 0x0f172a,
+                    metalness: 0.95,
+                    roughness: 0.1
+                });
+                const wing1 = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.02, 0.22), solarMat);
+                wing1.position.set(-0.36, 0, 0);
+                satMiniGroup.add(wing1);
+
+                const wing2 = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.02, 0.22), solarMat);
+                wing2.position.set(0.36, 0, 0);
+                satMiniGroup.add(wing2);
+
+                // Radiant Beacon Sphere
+                const beaconGeo = new THREE.SphereGeometry(0.12, 16, 16);
+                const beaconMat = new THREE.MeshBasicMaterial({
+                    color: colorHex
+                });
+                const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+                satMiniGroup.add(beacon);
+
+                // Halo Ring
+                const haloGeo = new THREE.RingGeometry(0.18, 0.24, 24);
+                const haloMat = new THREE.MeshBasicMaterial({
+                    color: colorHex,
+                    transparent: true,
+                    opacity: 0.7,
+                    side: THREE.DoubleSide
+                });
+                const halo = new THREE.Mesh(haloGeo, haloMat);
+                satMiniGroup.add(halo);
+
+                satMiniGroup.scale.set(0.22, 0.22, 0.22);
+                this.constellationSatellites[satId] = {
+                    group: satMiniGroup,
+                    halo: halo,
+                    beacon: beacon,
+                    info: satInfo
+                };
+                this.constellationGroup.add(satMiniGroup);
+            }
+
+            // Hide the mini-model if this satellite is currently the focused satellite
+            if (satId === this.currentSatId) {
+                this.constellationSatellites[satId].group.visible = false;
+            } else {
+                this.constellationSatellites[satId].group.visible = true;
+            }
+        });
+    }
+
+    updateConstellationSatellitePosition(satId, r_eci, quat = null) {
+        if (!r_eci) return;
+        const x = r_eci[0] * this.scaleRatio;
+        const y = r_eci[2] * this.scaleRatio;
+        const z = -r_eci[1] * this.scaleRatio;
+
+        if (satId === this.currentSatId) {
+            this.setSatelliteState(r_eci, quat);
+            if (this.constellationSatellites[satId]) {
+                this.constellationSatellites[satId].group.visible = false;
+            }
+        } else {
+            const satObj = this.constellationSatellites[satId];
+            if (satObj) {
+                satObj.group.position.set(x, y, z);
+                satObj.group.visible = true;
+                if (satObj.halo) {
+                    satObj.halo.lookAt(this.camera.position);
+                }
+            }
+        }
+    }
+
+    // =========================================================================
     // Trajectory Visualization
     // =========================================================================
     initOrbitLines() {
@@ -955,12 +1099,12 @@ class SpaceScene {
                 this.controls.target.copy(this.satGroup.position);
             }
         } else if (mode === 'CLOSEUP') {
-            this.controls.minDistance = 0.5;
-            this.controls.maxDistance = 25.0;
+            this.controls.minDistance = 0.2;
+            this.controls.maxDistance = 20.0;
             if (this.satGroup) {
                 this.controls.target.copy(this.satGroup.position);
                 const satPos = this.satGroup.position.clone();
-                this.camera.position.copy(satPos).add(new THREE.Vector3(1.8, 0.9, 2.0));
+                this.camera.position.copy(satPos).add(new THREE.Vector3(0.55, 0.28, 0.65));
             }
         } else if (mode === 'CELESTIAL') {
             // View deep space planets & Moon from Earth perspective
