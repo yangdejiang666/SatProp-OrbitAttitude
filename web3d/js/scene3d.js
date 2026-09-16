@@ -79,14 +79,14 @@ class SpaceScene {
     }
 
     // =========================================================================
-    // 1. Deep Space Milky Way Galaxy Skybox
+    // 1. Deep Space Milky Way Galaxy Skybox (NASA Official Deep Sky & Tycho Starfield)
     // =========================================================================
     createDeepSpaceSkybox() {
         const textureLoader = new THREE.TextureLoader();
 
-        // 1. Panoramic Milky Way Celestial Sphere (2000 units radius)
+        // 1. Panoramic NASA 4K Deep Sky & Tycho Starfield Sphere (1800 radius)
         const skyGeo = new THREE.SphereGeometry(1800, 64, 40);
-        const skyTex = textureLoader.load('textures/milky_way_panorama.jpg', (tex) => {
+        const skyTex = textureLoader.load('textures/nasa_deep_sky_4k.jpg', (tex) => {
             tex.anisotropy = 4;
         });
 
@@ -94,14 +94,13 @@ class SpaceScene {
             map: skyTex,
             side: THREE.BackSide,
             depthWrite: false,
-            transparent: true,
-            opacity: 0.95
+            transparent: false
         });
 
         this.deepSpaceSky = new THREE.Mesh(skyGeo, skyMat);
         this.scene.add(this.deepSpaceSky);
 
-        // 2. Auxiliary fine star field points
+        // 2. Auxiliary fine star field points for parallax motion depth
         const starCount = 2500;
         const starGeo = new THREE.BufferGeometry();
         const pos = new Float32Array(starCount * 3);
@@ -137,36 +136,112 @@ class SpaceScene {
     }
 
     // =========================================================================
-    // 2. High-Resolution Earth with Day/Night Lighting
+    // 2. High-Resolution Earth with Real NASA Day/Night Lighting & City Lights
     // =========================================================================
     createEarth() {
         const textureLoader = new THREE.TextureLoader();
 
-        // 1. High-resolution daylight surface map
-        const earthMap = textureLoader.load('textures/earth_daymap.jpg');
-        const specularMap = textureLoader.load('textures/earth_specular.jpg');
+        // High-resolution NASA Blue Marble (Day) & Black Marble (Night Lights) & Specular Map
+        const dayTex = textureLoader.load('textures/earth_blue_marble.jpg');
+        dayTex.anisotropy = 4;
+        const nightTex = textureLoader.load('textures/earth_night_lights.png');
+        nightTex.anisotropy = 4;
+        const specTex = textureLoader.load('textures/earth_specular.jpg');
+
+        this.earthUniforms = {
+            uDayMap: { value: dayTex },
+            uNightMap: { value: nightTex },
+            uSpecularMap: { value: specTex },
+            uSunDirection: { value: new THREE.Vector3(-0.95, 0.25, -0.15).normalize() },
+            uTime: { value: 0.0 }
+        };
+
+        const earthVertexShader = `
+            varying vec2 vUv;
+            varying vec3 vNormalWorld;
+            varying vec3 vViewDir;
+
+            void main() {
+                vUv = uv;
+                vNormalWorld = normalize(mat3(modelMatrix) * normal);
+                vec4 worldPos = modelMatrix * vec4(position, 1.0);
+                vViewDir = normalize(cameraPosition - worldPos.xyz);
+                gl_Position = projectionMatrix * viewMatrix * worldPos;
+            }
+        `;
+
+        const earthFragmentShader = `
+            uniform sampler2D uDayMap;
+            uniform sampler2D uNightMap;
+            uniform sampler2D uSpecularMap;
+            uniform vec3 uSunDirection;
+            uniform float uTime;
+
+            varying vec2 vUv;
+            varying vec3 vNormalWorld;
+            varying vec3 vViewDir;
+
+            void main() {
+                vec3 N = normalize(vNormalWorld);
+                vec3 L = normalize(uSunDirection);
+                vec3 V = normalize(vViewDir);
+
+                float sunDot = dot(N, L);
+
+                // Day / Night transition curve
+                float dayFactor = smoothstep(-0.12, 0.18, sunDot);
+
+                // Daylight color & specular highlights
+                vec3 dayColor = texture2D(uDayMap, vUv).rgb;
+                float oceanMask = texture2D(uSpecularMap, vUv).r;
+
+                vec3 H = normalize(L + V);
+                float spec = pow(max(0.0, dot(N, H)), 24.0) * oceanMask * max(0.0, sunDot) * 1.6;
+                dayColor += vec3(0.92, 0.96, 1.0) * spec;
+
+                float diffuse = max(0.0, sunDot);
+                vec3 litDay = dayColor * (diffuse * 0.92 + 0.08);
+
+                // Night lights with subtle golden twinkling
+                vec3 nightLights = texture2D(uNightMap, vUv).rgb;
+                float twinkle = 0.90 + 0.10 * sin(uTime * 4.0 + vUv.x * 500.0 + vUv.y * 350.0);
+                vec3 litNight = nightLights * (twinkle * 1.85);
+
+                // Sunset / Twilight orange rim at the terminator
+                float twilight = smoothstep(-0.12, 0.02, sunDot) * (1.0 - smoothstep(0.02, 0.20, sunDot));
+                vec3 sunsetRim = vec3(1.0, 0.42, 0.12) * (twilight * 0.55);
+
+                // Blend Day and Night
+                vec3 surfaceColor = mix(litNight, litDay, dayFactor) + sunsetRim;
+
+                // Atmospheric Rayleigh limb scattering (blue Fresnel haze)
+                float fresnel = pow(1.0 - max(0.0, dot(N, V)), 3.2);
+                float atmoSun = max(0.0, sunDot * 0.5 + 0.5);
+                vec3 atmoHaze = vec3(0.24, 0.60, 0.96) * (fresnel * atmoSun * 0.82);
+                surfaceColor += atmoHaze;
+
+                gl_FragColor = vec4(surfaceColor, 1.0);
+            }
+        `;
 
         const earthGeo = new THREE.SphereGeometry(this.earthRadius, 64, 64);
-        const earthMat = new THREE.MeshPhongMaterial({
-            map: earthMap,
-            specularMap: specularMap,
-            specular: new THREE.Color(0x445577),
-            shininess: 28,
-            roughness: 0.5
+        const earthMat = new THREE.ShaderMaterial({
+            uniforms: this.earthUniforms,
+            vertexShader: earthVertexShader,
+            fragmentShader: earthFragmentShader
         });
 
         this.earthMesh = new THREE.Mesh(earthGeo, earthMat);
-        // Earth axial tilt (-23.44 deg)
         this.earthMesh.rotation.z = THREE.MathUtils.degToRad(-23.44);
         this.scene.add(this.earthMesh);
 
-        // 2. High-res dense dynamic cloud envelope
+        // Dynamic cloud layer
         const cloudsTex = textureLoader.load('textures/earth_clouds_dense.jpg');
-        const cloudsGeo = new THREE.SphereGeometry(this.earthRadius * 1.01, 64, 64);
+        const cloudsGeo = new THREE.SphereGeometry(this.earthRadius * 1.012, 64, 64);
         const cloudsMat = new THREE.MeshLambertMaterial({
             map: cloudsTex,
             transparent: true,
-            opacity: 0.45,
+            opacity: 0.40,
             blending: THREE.NormalBlending,
             depthWrite: false
         });
@@ -176,11 +251,11 @@ class SpaceScene {
     }
 
     createAtmosphere() {
-        const atmoGeo = new THREE.SphereGeometry(this.earthRadius * 1.022, 48, 48);
+        const atmoGeo = new THREE.SphereGeometry(this.earthRadius * 1.025, 64, 64);
         const atmoMat = new THREE.MeshLambertMaterial({
             color: 0x38bdf8,
             transparent: true,
-            opacity: 0.16,
+            opacity: 0.20,
             side: THREE.BackSide,
             blending: THREE.AdditiveBlending
         });
@@ -189,35 +264,98 @@ class SpaceScene {
     }
 
     // =========================================================================
-    // 3. Astronomical Real Sun (3D Celestial Body + Real Lighting)
+    // 3. Astronomical Real Sun (NASA SDO Photosphere + Dynamic Corona)
     // =========================================================================
     createSun() {
         this.sunGroup = new THREE.Group();
         const textureLoader = new THREE.TextureLoader();
 
-        // 1. 3D Sun Photosphere Sphere
-        const sunGeo = new THREE.SphereGeometry(22.0, 32, 32);
-        const sunTex = textureLoader.load('textures/sun_texture.jpg');
-        const sunMat = new THREE.MeshBasicMaterial({
-            map: sunTex,
-            color: 0xffffff
+        // 1. 3D Sun Photosphere Sphere with NASA SDO Texture & Limb Darkening
+        const sunGeo = new THREE.SphereGeometry(22.0, 48, 48);
+        const sunTex = textureLoader.load('textures/sun_sdo_nasa.jpg');
+
+        this.sunUniforms = {
+            uSunMap: { value: sunTex },
+            uTime: { value: 0.0 }
+        };
+
+        const sunVertexShader = `
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewDir;
+
+            void main() {
+                vUv = uv;
+                vNormal = normalize(normalMatrix * normal);
+                vec4 worldPos = modelMatrix * vec4(position, 1.0);
+                vViewDir = normalize(cameraPosition - worldPos.xyz);
+                gl_Position = projectionMatrix * viewMatrix * worldPos;
+            }
+        `;
+
+        const sunFragmentShader = `
+            uniform sampler2D uSunMap;
+            uniform float uTime;
+
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewDir;
+
+            void main() {
+                vec3 N = normalize(vNormal);
+                vec3 V = normalize(vViewDir);
+                float cosTheta = max(0.0, dot(N, V));
+
+                // Solar Limb Darkening: I(theta) = I0 * (1 - u * (1 - cosTheta^0.8))
+                float limb = 1.0 - 0.50 * pow(1.0 - cosTheta, 0.85);
+
+                // Subtle convection drift
+                vec2 uvDrift = vUv + vec2(uTime * 0.0012, 0.0);
+                vec3 texColor = texture2D(uSunMap, uvDrift).rgb;
+
+                // High-temperature solar radiation
+                vec3 solarColor = texColor * (limb * 1.22);
+                solarColor += vec3(0.25, 0.15, 0.05) * pow(cosTheta, 3.5);
+
+                gl_FragColor = vec4(solarColor, 1.0);
+            }
+        `;
+
+        const sunMat = new THREE.ShaderMaterial({
+            uniforms: this.sunUniforms,
+            vertexShader: sunVertexShader,
+            fragmentShader: sunFragmentShader
         });
         const sunMesh = new THREE.Mesh(sunGeo, sunMat);
         this.sunGroup.add(sunMesh);
 
-        // 2. Solar Corona Glow Halo
-        const coronaGeo = new THREE.SphereGeometry(28.0, 24, 24);
+        // 2. Chromosphere Solar Prominence Halo
+        const coronaGeo = new THREE.SphereGeometry(25.0, 32, 32);
         const coronaMat = new THREE.MeshBasicMaterial({
-            color: 0xffa022,
+            color: 0xff8811,
             transparent: true,
-            opacity: 0.28,
+            opacity: 0.35,
             blending: THREE.AdditiveBlending,
             side: THREE.BackSide
         });
         const corona = new THREE.Mesh(coronaGeo, coronaMat);
         this.sunGroup.add(corona);
 
-        // Position Sun at 750 units away (default direction along negative X)
+        // 3. Dynamic Outer Corona Flare Streamers (NASA Coronal Rays)
+        const flareTex = textureLoader.load('textures/sun_corona_flare.png');
+        const flareMat = new THREE.SpriteMaterial({
+            map: flareTex,
+            color: 0xffdd66,
+            transparent: true,
+            opacity: 0.80,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        this.sunFlareSprite = new THREE.Sprite(flareMat);
+        this.sunFlareSprite.scale.set(135, 135, 1.0);
+        this.sunGroup.add(this.sunFlareSprite);
+
+        // Position Sun at 750 units away
         this.sunDistance = 750.0;
         this.sunGroup.position.set(-this.sunDistance, 30, 0);
         this.scene.add(this.sunGroup);
@@ -304,6 +442,11 @@ class SpaceScene {
 
             // Directional sunlight
             this.sunLight.position.set(sx * 100, sy * 100, sz * 100);
+
+            // Update Earth day/night shader sun direction
+            if (this.earthUniforms) {
+                this.earthUniforms.uSunDirection.value.set(sx, sy, sz).normalize();
+            }
 
             // Position 3D Sun body along true celestial sightline
             if (this.sunGroup) {
@@ -929,6 +1072,9 @@ class SpaceScene {
         }
     }
 
+    // =========================================================================
+    // Aerospace Radar/Optical Observation Fix Entities (Ground Pass Tracking Reticles)
+    // =========================================================================
     updateSyntheticObservationMarkers(obsList) {
         if (!this.syntheticMarkersGroup) return;
 
@@ -940,25 +1086,76 @@ class SpaceScene {
 
         if (!obsList || obsList.length === 0) return;
 
-        const octaGeo = new THREE.OctahedronGeometry(0.16, 0);
-        const octaMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
+        const textureLoader = new THREE.TextureLoader();
+        const reticleTex = textureLoader.load('textures/obs_target_reticle.png');
+
+        // Shared geometries & materials
+        const coreGeo = new THREE.SphereGeometry(0.08, 16, 16);
+        const coreMat = new THREE.MeshStandardMaterial({
+            color: 0x0284c7,
+            metalness: 0.90,
+            roughness: 0.15
+        });
+
+        const lensGeo = new THREE.SphereGeometry(0.045, 12, 12);
+        const lensMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
+
+        const ringGeo = new THREE.RingGeometry(0.16, 0.20, 32);
+        const ringMat = new THREE.MeshBasicMaterial({
+            color: 0x06b6d4,
+            transparent: true,
+            opacity: 0.85,
+            side: THREE.DoubleSide
+        });
 
         obsList.forEach(obs => {
             const pt = obs.pos_eci;
             if (pt) {
-                const mesh = new THREE.Mesh(octaGeo, octaMat);
-                mesh.position.set(pt[0] * this.scaleRatio, pt[2] * this.scaleRatio, -pt[1] * this.scaleRatio);
-                this.syntheticMarkersGroup.add(mesh);
+                const obsGroup = new THREE.Group();
+
+                // 1. Central Radar Retro-Reflector Target Sphere
+                const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+                obsGroup.add(coreMesh);
+
+                // 2. Luminous Optical Sensor Core
+                const lensMesh = new THREE.Mesh(lensGeo, lensMat);
+                obsGroup.add(lensMesh);
+
+                // 3. 3D Concentric Radar Range Ring
+                const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+                ringMesh.rotation.x = Math.PI / 2;
+                obsGroup.add(ringMesh);
+                obsGroup.ringMesh = ringMesh;
+
+                // 4. Tactical Radar Reticle Crosshair Sprite
+                const spriteMat = new THREE.SpriteMaterial({
+                    map: reticleTex,
+                    color: 0x22d3ee,
+                    transparent: true,
+                    opacity: 0.92,
+                    blending: THREE.AdditiveBlending
+                });
+                const reticleSprite = new THREE.Sprite(spriteMat);
+                reticleSprite.scale.set(0.65, 0.65, 1.0);
+                obsGroup.add(reticleSprite);
+                obsGroup.reticleSprite = reticleSprite;
+
+                obsGroup.position.set(pt[0] * this.scaleRatio, pt[2] * this.scaleRatio, -pt[1] * this.scaleRatio);
+                this.syntheticMarkersGroup.add(obsGroup);
             }
         });
     }
 
     // =========================================================================
-    // Ground Stations
+    // High-Fidelity Deep Space Satellite Ground Tracking Antenna Stations
     // =========================================================================
     createGroundStations() {
         this.stationMarkers = [];
         this.stationGroup = new THREE.Group();
+        const textureLoader = new THREE.TextureLoader();
+
+        const dishTex = textureLoader.load('textures/station_dish.png');
+        const baseTex = textureLoader.load('textures/station_base.png');
 
         const stations = [
             { name: "Beijing Station", lat: 40.05, lon: 116.32 },
@@ -977,34 +1174,142 @@ class SpaceScene {
             const z = this.earthRadius * Math.sin(phi) * Math.sin(theta);
             const normal = new THREE.Vector3(x, y, z).normalize();
 
-            const dishGroup = new THREE.Group();
+            const stationRoot = new THREE.Group();
+
+            // 1. Octagonal Concrete Base Building (hazard stripes & panel seams)
+            const bunkerGeo = new THREE.CylinderGeometry(0.24, 0.29, 0.13, 8);
+            const bunkerMat = new THREE.MeshStandardMaterial({
+                map: baseTex,
+                roughness: 0.70,
+                metalness: 0.25
+            });
+            const bunker = new THREE.Mesh(bunkerGeo, bunkerMat);
+            bunker.position.y = 0.065;
+            stationRoot.add(bunker);
+
+            // 2. Azimuth Turntable Bearing Ring
+            const turntable = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.18, 0.19, 0.04, 16),
+                new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.20 })
+            );
+            turntable.position.y = 0.15;
+            stationRoot.add(turntable);
+
+            // 3. Central Yoke Pedestal & Az-El Gimbal
             const pedestal = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.06, 0.09, 0.18, 12),
-                new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.6, roughness: 0.3 })
+                new THREE.CylinderGeometry(0.07, 0.09, 0.12, 12),
+                new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.65, roughness: 0.35 })
             );
-            pedestal.position.y = 0.09;
-            dishGroup.add(pedestal);
+            pedestal.position.y = 0.22;
+            stationRoot.add(pedestal);
 
-            const dish = new THREE.Mesh(
-                new THREE.SphereGeometry(0.14, 16, 10, 0, Math.PI),
-                new THREE.MeshStandardMaterial({ color: 0x38bdf8, metalness: 0.7, roughness: 0.25 })
+            // Dual Elevation Fork Stanchions
+            const armGeo = new THREE.BoxGeometry(0.035, 0.16, 0.06);
+            const armMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.70, roughness: 0.30 });
+            const armL = new THREE.Mesh(armGeo, armMat);
+            armL.position.set(-0.12, 0.27, 0);
+            stationRoot.add(armL);
+            const armR = new THREE.Mesh(armGeo, armMat);
+            armR.position.set(0.12, 0.27, 0);
+            stationRoot.add(armR);
+
+            // 4. Parabolic Dish Assembly (Articulates in elevation)
+            const dishAimGroup = new THREE.Group();
+            dishAimGroup.position.set(0, 0.30, 0);
+
+            // True Parabolic Lathe Surface
+            const lathePoints = [];
+            for (let i = 0; i <= 16; i++) {
+                const r = (i / 16) * 0.28;
+                const py = (r * r) / (0.28 * 0.28) * 0.07;
+                lathePoints.push(new THREE.Vector2(r, py));
+            }
+            const dishGeo = new THREE.LatheGeometry(lathePoints, 32);
+            const dishMat = new THREE.MeshStandardMaterial({
+                map: dishTex,
+                metalness: 0.65,
+                roughness: 0.32,
+                side: THREE.DoubleSide
+            });
+            const dish = new THREE.Mesh(dishGeo, dishMat);
+            dish.rotation.x = Math.PI; // Concave side faces upward
+            dishAimGroup.add(dish);
+
+            // Backside Structural Truss Ring
+            const trussRing = new THREE.Mesh(
+                new THREE.TorusGeometry(0.27, 0.010, 8, 24),
+                new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.80, roughness: 0.25 })
             );
-            dish.position.y = 0.22;
-            dish.rotation.x = -Math.PI / 4;
-            dishGroup.add(dish);
+            trussRing.rotation.x = Math.PI / 2;
+            trussRing.position.y = -0.01;
+            dishAimGroup.add(trussRing);
 
-            dishGroup.position.set(x, y, z);
-            dishGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-            this.stationGroup.add(dishGroup);
+            // 5. Cassegrain Primary Feed Horn & Quadripod Support Struts
+            const feedHorn = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.02, 0.032, 0.06, 12),
+                new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.90, roughness: 0.15 })
+            );
+            feedHorn.position.y = 0.02;
+            dishAimGroup.add(feedHorn);
 
-            const ringGeo = new THREE.RingGeometry(0.7, 0.75, 32);
-            const ringMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+            // Quadripod struts to focal sub-reflector
+            const strutGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.24, 6);
+            const strutMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.70, roughness: 0.30 });
+            for (let a = 0; a < 4; a++) {
+                const ang = a * (Math.PI / 2);
+                const strut = new THREE.Mesh(strutGeo, strutMat);
+                const rx = 0.22 * Math.cos(ang);
+                const rz = 0.22 * Math.sin(ang);
+                strut.position.set(rx * 0.5, 0.10, rz * 0.5);
+                strut.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-rx, 0.18, -rz).normalize());
+                dishAimGroup.add(strut);
+            }
+
+            // Cassegrain Sub-reflector Apex Cone
+            const subReflector = new THREE.Mesh(
+                new THREE.ConeGeometry(0.042, 0.032, 12),
+                new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.20 })
+            );
+            subReflector.position.y = 0.18;
+            subReflector.rotation.x = Math.PI;
+            dishAimGroup.add(subReflector);
+
+            // Red FAA Obstruction Warning Beacon at apex
+            const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff1e1e, transparent: true, opacity: 1.0 });
+            const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), beaconMat);
+            beacon.position.y = 0.205;
+            dishAimGroup.add(beacon);
+
+            // Default elevation tilt (~35 degrees)
+            dishAimGroup.rotation.x = -Math.PI * 0.20;
+            stationRoot.add(dishAimGroup);
+
+            // Position and align station normal to Earth surface
+            stationRoot.position.set(x, y, z);
+            stationRoot.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+            this.stationGroup.add(stationRoot);
+
+            // 6. Cyan Radar Coverage Horizon Ground Ring
+            const ringGeo = new THREE.RingGeometry(0.75, 0.82, 32);
+            const ringMat = new THREE.MeshBasicMaterial({
+                color: 0x06b6d4,
+                transparent: true,
+                opacity: 0.35,
+                side: THREE.DoubleSide
+            });
             const ring = new THREE.Mesh(ringGeo, ringMat);
             ring.position.set(x * 1.002, y * 1.002, z * 1.002);
             ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
             this.stationGroup.add(ring);
 
-            this.stationMarkers.push({ dishGroup, ring, name: st.name, position: new THREE.Vector3(x, y, z) });
+            this.stationMarkers.push({
+                dishGroup: stationRoot,
+                dishAimGroup: dishAimGroup,
+                beaconMesh: beacon,
+                ring: ring,
+                name: st.name,
+                position: new THREE.Vector3(x, y, z)
+            });
         });
 
         this.scene.add(this.stationGroup);
@@ -1039,6 +1344,13 @@ class SpaceScene {
         ]);
         this.trackingBeam.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         this.trackingBeam.visible = true;
+
+        // Dynamically slew ground tracking dish towards satellite
+        if (st.dishAimGroup && st.dishGroup) {
+            const worldSat = this.satGroup.position.clone();
+            const localSat = st.dishGroup.worldToLocal(worldSat);
+            st.dishAimGroup.lookAt(localSat);
+        }
     }
 
     initApsidesMarkers() {
@@ -1156,9 +1468,49 @@ class SpaceScene {
         requestAnimationFrame(this.animate);
         this.controls.update();
 
-        // Slow differential atmospheric cloud drift
+        const nowSec = performance.now() * 0.001;
+
+        // 1. Slow differential atmospheric cloud drift
         if (this.cloudsMesh) {
             this.cloudsMesh.rotation.y += 0.00015;
+        }
+
+        // 2. Dynamic Earth Day/Night Shader Animation (City Lights Twinkle)
+        if (this.earthUniforms) {
+            this.earthUniforms.uTime.value = nowSec;
+        }
+
+        // 3. Dynamic Sun Photosphere & Corona Streamers Animation
+        if (this.sunUniforms) {
+            this.sunUniforms.uTime.value = nowSec;
+        }
+        if (this.sunFlareSprite) {
+            this.sunFlareSprite.material.rotation += 0.0003;
+            const flarePulse = 135.0 + 3.5 * Math.sin(nowSec * 1.6);
+            this.sunFlareSprite.scale.set(flarePulse, flarePulse, 1.0);
+        }
+
+        // 4. Ground Tracking Stations FAA Obstruction Beacons & Slew Tracking
+        const beaconBlink = Math.sin(nowSec * 5.0) > 0.0;
+        if (this.stationMarkers) {
+            this.stationMarkers.forEach(st => {
+                if (st.beaconMesh) {
+                    st.beaconMesh.material.opacity = beaconBlink ? 1.0 : 0.2;
+                }
+            });
+        }
+
+        // 5. Tactical Radar Observation Markers Pulse & Reticle Rotation
+        if (this.syntheticMarkersGroup && this.syntheticMarkersGroup.children.length > 0) {
+            this.syntheticMarkersGroup.children.forEach((child, idx) => {
+                if (child.ringMesh) {
+                    child.ringMesh.rotation.z += 0.015;
+                }
+                if (child.reticleSprite) {
+                    const scalePulse = 0.65 + 0.04 * Math.sin(nowSec * 3.5 + idx * 1.2);
+                    child.reticleSprite.scale.set(scalePulse, scalePulse, 1.0);
+                }
+            });
         }
 
         // Camera follow & closeup mode tracking
@@ -1168,7 +1520,7 @@ class SpaceScene {
             this.controls.target.lerp(this.satGroup.position, 0.1);
         }
 
-        // Update tracking laser beam
+        // Update tracking laser beam & antenna boresight alignment
         if (this.trackingBeam && this.trackingBeam.visible && this.activeStation && this.satGroup) {
             const st = this.activeStation;
             const positions = new Float32Array([
@@ -1176,6 +1528,13 @@ class SpaceScene {
                 this.satGroup.position.x, this.satGroup.position.y, this.satGroup.position.z
             ]);
             this.trackingBeam.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            // Continuously orient dish towards satellite during tracking pass
+            if (st.dishAimGroup && st.dishGroup) {
+                const worldSat = this.satGroup.position.clone();
+                const localSat = st.dishGroup.worldToLocal(worldSat);
+                st.dishAimGroup.lookAt(localSat);
+            }
         }
 
         // Thruster flicker
