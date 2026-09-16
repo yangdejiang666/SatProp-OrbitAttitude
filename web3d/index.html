@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SatProp-OrbitAttitude | 卫星轨道动力学预测与姿态推演平台</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Three.js and OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 3D WebGL Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Top Mission Control Navigation Bar -->
+    <header id="top-navbar" class="glass-panel">
+        <div class="brand-section">
+            <div class="brand-icon">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                </svg>
+            </div>
+            <div class="brand-title">
+                SatProp-OrbitAttitude
+                <span class="system-badge" id="live-status-text">
+                    <span class="live-pulse"></span> TELEMETRY LIVE
+                </span>
+            </div>
+        </div>
+
+        <div class="nav-controls">
+            <!-- Satellite Selection -->
+            <select id="select-satellite" class="select-control" title="选择目标卫星">
+                <option value="cartosat2">CARTOSAT-2 (遥感卫星)</option>
+                <option value="iss">ISS (国际空间站)</option>
+                <option value="tiangong">TIANGONG (天宫空间站)</option>
+                <option value="starlink">STARLINK (低轨宽带星座)</option>
+                <option value="beidou">BEIDOU (北斗中高轨导航)</option>
+            </select>
+
+            <!-- Propagator Mode -->
+            <select id="select-propagator" class="select-control" title="动力学预测器">
+                <option value="HYBRID_ML">物理模型 + ML 残差修正 (Hybrid)</option>
+                <option value="SGP4">标准分析模型 (SGP4/SDP4)</option>
+                <option value="COWELL_RKF78">高精度数值积分 (Cowell RKF78)</option>
+                <option value="COWELL_RK4">经典龙格库塔 (Cowell RK4)</option>
+                <option value="COWELL_ABM4">多步法 (Adams-Bashforth-Moulton)</option>
+            </select>
+
+            <!-- Attitude Pointing Mode -->
+            <select id="select-attitude-mode" class="select-control" title="卫星姿态指向模式">
+                <option value="NADIR">对地定向 (Nadir Remote Sensing)</option>
+                <option value="SUN">对日定向 (Sun Pointing / Solar)</option>
+            </select>
+
+            <!-- Maneuver Button -->
+            <button id="btn-maneuver" class="nav-btn gold" title="启动变轨推进器进行轨道维持矫正">
+                🔥 轨道维持 / 回归正轨
+            </button>
+        </div>
+    </header>
+
+    <!-- Left HUD Panel: Live Telemetry & Attitude Subsystem -->
+    <aside id="left-panel" class="glass-panel">
+        <div class="panel-header">
+            <h3>📡 实时星历遥测</h3>
+            <span style="font-size: 11px; color: var(--text-dim); font-family: var(--font-mono);">J2000 / ECEF</span>
+        </div>
+
+        <div class="telemetry-grid">
+            <div class="telemetry-card">
+                <div class="label">轨道高度 (Alt)</div>
+                <div class="value"><span id="val-alt">505.2</span><span class="unit">km</span></div>
+            </div>
+            <div class="telemetry-card">
+                <div class="label">运行线速度 (Vel)</div>
+                <div class="value"><span id="val-vel">7.612</span><span class="unit">km/s</span></div>
+            </div>
+            <div class="telemetry-card">
+                <div class="label">星下点纬度 (Lat)</div>
+                <div class="value"><span id="val-lat">28.45</span><span class="unit">°N</span></div>
+            </div>
+            <div class="telemetry-card">
+                <div class="label">星下点经度 (Lon)</div>
+                <div class="value"><span id="val-lon">118.92</span><span class="unit">°E</span></div>
+            </div>
+            <div class="telemetry-card">
+                <div class="label">轨道倾角 (Inc)</div>
+                <div class="value"><span id="val-inc">97.91</span><span class="unit">°</span></div>
+            </div>
+            <div class="telemetry-card">
+                <div class="label">偏心率 (Ecc)</div>
+                <div class="value"><span id="val-ecc">0.00125</span></div>
+            </div>
+            <div class="telemetry-card">
+                <div class="label">半长轴 (SMA)</div>
+                <div class="value"><span id="val-sma">6883.3</span><span class="unit">km</span></div>
+            </div>
+            <div class="telemetry-card">
+                <div class="label">轨道周期 (Period)</div>
+                <div class="value"><span id="val-period">94.7</span><span class="unit">min</span></div>
+            </div>
+        </div>
+
+        <div class="panel-header" style="margin-top: 12px;">
+            <h3>🛰️ 姿态动力学推演</h3>
+            <span style="font-size: 11px; color: var(--text-dim); font-family: var(--font-mono);">LVLH FRAME</span>
+        </div>
+
+        <div class="euler-bar-container">
+            <div class="euler-bar-row">
+                <span style="color: var(--accent-magenta);">ROLL (横滚):</span>
+                <span id="val-roll">0.0</span>°
+                <div class="euler-bar-track"><div id="fill-roll" class="euler-bar-fill fill-roll" style="width: 2%;"></div></div>
+            </div>
+            <div class="euler-bar-row">
+                <span style="color: var(--accent-cyan);">PITCH (俯仰):</span>
+                <span id="val-pitch">0.0</span>°
+                <div class="euler-bar-track"><div id="fill-pitch" class="euler-bar-fill fill-pitch" style="width: 2%;"></div></div>
+            </div>
+            <div class="euler-bar-row">
+                <span style="color: var(--accent-green);">YAW (偏航):</span>
+                <span id="val-yaw">0.0</span>°
+                <div class="euler-bar-track"><div id="fill-yaw" class="euler-bar-fill fill-yaw" style="width: 2%;"></div></div>
+            </div>
+        </div>
+
+        <div class="panel-header" style="margin-top: 14px;">
+            <h3>📐 姿态角时程曲线</h3>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="chart-attitude"></canvas>
+        </div>
+    </aside>
+
+    <!-- Right HUD Panel: ML Residual Correction & Numerical Benchmark -->
+    <aside id="right-panel" class="glass-panel">
+        <div class="panel-header">
+            <h3>🧠 ML 轨道残差修正 (LSTM)</h3>
+            <span style="font-size: 11px; color: var(--accent-green); font-family: var(--font-mono);">RIC DECOMPOSITION</span>
+        </div>
+
+        <div class="metric-hero">
+            <div class="hero-label">1小时预报误差下降率 (1-σ Confidence)</div>
+            <div class="hero-value" id="hero-reduction-val">-82.1%</div>
+            <div class="hero-sub">
+                SGP4误差: <span id="hero-sgp4-err" style="color:#ff3366;">15132 m</span> → 混合模型: <span id="hero-hybrid-err" style="color:#00ff88;">2715 m</span>
+            </div>
+        </div>
+
+        <div class="panel-header" style="margin-top: 8px;">
+            <h3>📈 RIC 轨道残差 (径向/切向/法向)</h3>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="chart-ric-residuals"></canvas>
+        </div>
+
+        <div class="panel-header" style="margin-top: 14px;">
+            <h3>⚡ 数值积分方法对比 (RK4 vs RKF78 vs ABM4)</h3>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="chart-benchmark"></canvas>
+        </div>
+    </aside>
+
+    <!-- Bottom Mission Control Dock -->
+    <footer id="bottom-dock" class="glass-panel">
+        <button id="btn-play-pause" class="time-btn" title="播放/暂停推演">⏸</button>
+        <span id="badge-speed" class="speed-badge" title="切换模拟步进倍速">1x</span>
+        <input type="range" id="time-slider" class="timeline-slider" min="0" max="100" value="0">
+
+        <div class="toggle-group">
+            <button id="btn-toggle-stations" class="dock-pill-btn active">
+                📶 地面站视场 (Visibility)
+            </button>
+            <button id="btn-toggle-isl" class="dock-pill-btn">
+                🌐 星间链路拓扑 (ISL)
+            </button>
+        </div>
+    </footer>
+
+    <!-- Maneuver Planning Modal ("回归正轨过程") -->
+    <div id="maneuver-modal" class="glass-panel">
+        <div class="modal-title">🚀 轨道维持与矫正机动方案 (Station-Keeping)</div>
+        <div id="maneuver-content" class="modal-content-box">
+            <!-- Injected by maneuvers.js -->
+        </div>
+        <div class="modal-btn-row">
+            <button id="btn-cancel-burn" class="dock-pill-btn">取消</button>
+            <button id="btn-confirm-burn" class="nav-btn gold">🔥 确认执行点火变轨</button>
+        </div>
+    </div>
+
+    <!-- Application Javascript Bundle -->
+    <script src="js/scene3d.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/maneuvers.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
