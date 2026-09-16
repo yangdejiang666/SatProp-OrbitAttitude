@@ -421,6 +421,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Satellite switch
     satSelect.addEventListener('change', (e) => {
         state.currentSatId = e.target.value;
+        scene.switchSatelliteModel(state.currentSatId);
         updatePropagation();
         updateAttitude();
         loadVisibility();
@@ -439,9 +440,26 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Camera view mode switch
+    const btnQuickCloseup = document.getElementById('btn-quick-closeup');
     cameraModeSelect.addEventListener('change', (e) => {
+        state.cameraMode = e.target.value;
         scene.setCameraMode(e.target.value);
+        if (btnQuickCloseup) {
+            btnQuickCloseup.classList.toggle('active', e.target.value === 'CLOSEUP');
+        }
     });
+
+    // Quick closeup view button
+    if (btnQuickCloseup) {
+        btnQuickCloseup.addEventListener('click', () => {
+            const isCloseup = cameraModeSelect.value === 'CLOSEUP';
+            const newMode = isCloseup ? 'FREE' : 'CLOSEUP';
+            cameraModeSelect.value = newMode;
+            state.cameraMode = newMode;
+            scene.setCameraMode(newMode);
+            btnQuickCloseup.classList.toggle('active', newMode === 'CLOSEUP');
+        });
+    }
 
     // Layer comparison toggles
     btnLayerSgp4.addEventListener('click', () => {
@@ -639,6 +657,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 8. Launch Application
     loadSatellites().then(() => {
+        scene.switchSatelliteModel(state.currentSatId);
         updatePropagation();
         updateAttitude();
         loadVisibility();

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SatProp-OrbitAttitude | 卫星高精度轨道动力学预测与姿态推演平台</title>
+    <title>SatProp-OrbitAttitude | 卫星轨道动力学预测与姿态推演地面工作台</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,7 +20,7 @@
     <!-- 3D WebGL Canvas Container -->
     <div id="canvas-container"></div>
 
-    <!-- 3D Floating Holographic HUD Marker attached to Satellite -->
+    <!-- 3D Floating Telemetry HUD Marker attached to Satellite -->
     <div id="sat-floating-hud">
         <div class="hud-title-row">
             <span id="hud-sat-name">🛰️ CARTOSAT-2</span>
@@ -36,7 +36,7 @@
     <!-- Ground Station Contact Status Banner -->
     <div id="station-contact-banner">
         <span class="banner-pulse"></span>
-        <span>📡 测控进圈: <b id="banner-station-name">Beijing Station</b> | 仰角: <b id="banner-el">48.9°</b> | 斜距: <b id="banner-range">642 km</b></span>
+        <span>📡 测控站捕获 (AOS): <b id="banner-station-name">Beijing Station</b> | 仰角: <b id="banner-el">48.9°</b> | 斜距: <b id="banner-range">642 km</b></span>
     </div>
 
     <!-- Top Mission Control Navigation Bar -->
@@ -48,54 +48,55 @@
                 </svg>
             </div>
             <div class="brand-title">
-                SatProp-OrbitAttitude
+                SatProp Ground Control
                 <span class="system-badge" id="live-status-text">
-                    <span class="live-pulse"></span> TELEMETRY LIVE
+                    <span class="live-pulse"></span> OPERATIONAL
                 </span>
             </div>
         </div>
 
         <div class="nav-controls">
-            <!-- Trajectory Comparison Layer Toggles -->
+            <!-- Trajectory Comparison Segmented Controls -->
             <div class="layer-toggles-bar" title="轨道模型对比图层开关">
                 <button id="btn-layer-sgp4" class="layer-btn active-sgp4" title="标准分析模型 (SGP4 原始偏差轨)">
-                    🔴 SGP4 偏差轨
+                    <span class="dot" style="background:#f97316;"></span> SGP4 偏差轨
                 </button>
                 <button id="btn-layer-truth" class="layer-btn active-truth" title="高精度 Cowell 数值积分 (高保真真轨)">
-                    🟡 Cowell 真轨
+                    <span class="dot" style="background:#10b981;"></span> Cowell 真轨
                 </button>
                 <button id="btn-layer-hybrid" class="layer-btn active-hybrid" title="物理模型 + ML 残差修正轨 (Hybrid)">
-                    🟢 ML 矫正轨
+                    <span class="dot" style="background:#a855f7;"></span> ML 矫正轨
                 </button>
                 <button id="btn-layer-calibrated" class="layer-btn active-calibrated" title="调优数学模型预测轨 (Calibrated Unified Predictor)">
-                    ⚡ 调优预测轨
+                    <span class="dot" style="background:#06b6d4;"></span> 调优预测轨
                 </button>
             </div>
 
             <!-- Synthetic Data Calibration Button -->
             <button id="btn-synthetic-tuning" class="nav-btn gold" title="调校遥测假数据观测与数学模型预测精度">
-                🧪 假数据与模型调优
+                🧪 观测假数据调优
             </button>
 
             <!-- Camera View Mode -->
             <select id="select-camera-mode" class="select-control camera-mode-select" title="三维视角切换">
                 <option value="FREE">🌍 自由全景视角</option>
-                <option value="FOLLOW">🎯 锁定卫星视角</option>
+                <option value="FOLLOW">🎯 锁定跟踪视角</option>
+                <option value="CLOSEUP">🔍 卫星近景特写</option>
                 <option value="STATION">📡 测控站仰视视角</option>
             </select>
 
             <!-- Satellite Selection -->
             <select id="select-satellite" class="select-control" title="选择目标卫星">
                 <option value="cartosat2">CARTOSAT-2 (遥感卫星)</option>
-                <option value="iss">ISS (国际空间站)</option>
                 <option value="tiangong">TIANGONG (天宫空间站)</option>
-                <option value="starlink">STARLINK (低轨宽带星座)</option>
-                <option value="beidou">BEIDOU (北斗中高轨导航)</option>
+                <option value="beidou">BEIDOU (北斗导航卫星)</option>
+                <option value="iss">ISS (国际空间站)</option>
+                <option value="starlink">STARLINK (星链通信卫星)</option>
             </select>
 
             <!-- Propagator Mode -->
             <select id="select-propagator" class="select-control" title="动力学预测器算法">
-                <option value="UNIFIED">统一高保真多物理预测模型 (Unified Orbit Predictor)</option>
+                <option value="UNIFIED">统一多物理预测模型 (Unified Orbit Predictor)</option>
                 <option value="HYBRID_ML">物理模型 + ML 残差修正 (Hybrid)</option>
                 <option value="SGP4">标准分析模型 (SGP4/SDP4)</option>
                 <option value="COWELL_RKF78">高精度数值积分 (Cowell RKF78)</option>
@@ -125,8 +126,8 @@
     <!-- Left HUD Panel: Live Telemetry & Attitude Subsystem -->
     <aside id="left-panel" class="glass-panel">
         <div class="panel-header">
-            <h3>📡 实时星历遥测</h3>
-            <span style="font-size: 11px; color: var(--text-dim); font-family: var(--font-mono);">J2000 / ECEF</span>
+            <h3>📡 实时星历遥测数据</h3>
+            <span style="font-size: 10px; color: var(--text-dim); font-family: var(--font-mono);">J2000 / ECEF</span>
         </div>
 
         <div class="telemetry-grid">
@@ -140,23 +141,23 @@
             </div>
             <div class="telemetry-card">
                 <div class="label">星下点纬度 (Lat)</div>
-                <div class="value"><span id="val-lat">28.45</span><span class="unit">°N</span></div>
+                <div class="value" id="val-lat">28.50°N</div>
             </div>
             <div class="telemetry-card">
                 <div class="label">星下点经度 (Lon)</div>
-                <div class="value"><span id="val-lon">118.92</span><span class="unit">°E</span></div>
+                <div class="value" id="val-lon">116.32°E</div>
             </div>
             <div class="telemetry-card">
                 <div class="label">轨道倾角 (Inc)</div>
-                <div class="value"><span id="val-inc">97.91</span><span class="unit">°</span></div>
+                <div class="value"><span id="val-inc">97.45</span><span class="unit">°</span></div>
             </div>
             <div class="telemetry-card">
                 <div class="label">偏心率 (Ecc)</div>
-                <div class="value"><span id="val-ecc">0.00125</span></div>
+                <div class="value" id="val-ecc">0.0014</div>
             </div>
             <div class="telemetry-card">
                 <div class="label">半长轴 (SMA)</div>
-                <div class="value"><span id="val-sma">6883.3</span><span class="unit">km</span></div>
+                <div class="value"><span id="val-sma">6883.2</span><span class="unit">km</span></div>
             </div>
             <div class="telemetry-card">
                 <div class="label">轨道周期 (Period)</div>
@@ -164,98 +165,109 @@
             </div>
             <div class="telemetry-card">
                 <div class="label">近地点高 (Perigee)</div>
-                <div class="value"><span id="val-perigee">498.1</span><span class="unit">km</span></div>
+                <div class="value"><span id="val-perigee" style="color:var(--color-nominal);">495.6</span><span class="unit">km</span></div>
             </div>
             <div class="telemetry-card">
                 <div class="label">远地点高 (Apogee)</div>
-                <div class="value"><span id="val-apogee">512.4</span><span class="unit">km</span></div>
+                <div class="value"><span id="val-apogee" style="color:var(--color-warning);">514.8</span><span class="unit">km</span></div>
             </div>
         </div>
 
-        <div class="panel-header" style="margin-top: 12px;">
-            <h3>🛰️ 姿态动力学与角速率</h3>
-            <span style="font-size: 11px; color: var(--text-dim); font-family: var(--font-mono);">LVLH FRAME</span>
+        <div class="panel-header" style="margin-top: 10px;">
+            <h3>🔄 姿态动力学与角速率</h3>
+            <span style="font-size: 10px; color: var(--text-dim); font-family: var(--font-mono);">LVLH FRAME</span>
         </div>
 
-        <div class="euler-bar-container">
-            <div class="euler-bar-row">
-                <span style="color: var(--accent-magenta);">ROLL (横滚):</span>
-                <span><b id="val-roll">0.0</b>°</span>
-                <div class="euler-bar-track"><div id="fill-roll" class="euler-bar-fill fill-roll" style="width: 2%;"></div></div>
+        <div class="telemetry-section">
+            <div class="attitude-axis-row">
+                <span class="axis-tag">ROLL (横滚):</span>
+                <div class="axis-bar-container">
+                    <div id="bar-roll" class="axis-bar-fill" style="width: 50%; background: #f43f5e;"></div>
+                </div>
+                <span id="val-roll" class="axis-val">0.00°</span>
             </div>
-            <div class="euler-bar-row">
-                <span style="color: var(--accent-cyan);">PITCH (俯仰):</span>
-                <span><b id="val-pitch">0.0</b>°</span>
-                <div class="euler-bar-track"><div id="fill-pitch" class="euler-bar-fill fill-pitch" style="width: 2%;"></div></div>
+            <div class="attitude-axis-row">
+                <span class="axis-tag">PITCH (俯仰):</span>
+                <div class="axis-bar-container">
+                    <div id="bar-pitch" class="axis-bar-fill" style="width: 50%; background: #06b6d4;"></div>
+                </div>
+                <span id="val-pitch" class="axis-val">0.00°</span>
             </div>
-            <div class="euler-bar-row">
-                <span style="color: var(--accent-green);">YAW (偏航):</span>
-                <span><b id="val-yaw">0.0</b>°</span>
-                <div class="euler-bar-track"><div id="fill-yaw" class="euler-bar-fill fill-yaw" style="width: 2%;"></div></div>
-            </div>
-        </div>
-
-        <div class="panel-header" style="margin-top: 14px;">
-            <h3>📐 姿态角时程曲线</h3>
-        </div>
-        <div class="chart-wrapper">
-            <canvas id="chart-attitude"></canvas>
-        </div>
-    </aside>
-
-    <!-- Right HUD Panel: ML Residual Correction & Numerical Benchmark -->
-    <aside id="right-panel" class="glass-panel">
-        <div class="panel-header">
-            <h3>🧠 ML 轨道残差修正 (LSTM)</h3>
-            <span style="font-size: 11px; color: var(--accent-green); font-family: var(--font-mono);">RIC DECOMPOSITION</span>
-        </div>
-
-        <div class="metric-hero">
-            <div class="hero-label">1小时预报误差下降率 (1-σ Confidence)</div>
-            <div class="hero-value" id="hero-reduction-val">-78.4%</div>
-            <div class="hero-sub">
-                SGP4误差: <span id="hero-sgp4-err" style="color:#ff3366;">14675 m</span> → 混合模型: <span id="hero-hybrid-err" style="color:#00ff88;">3177 m</span>
+            <div class="attitude-axis-row">
+                <span class="axis-tag">YAW (偏航):</span>
+                <div class="axis-bar-container">
+                    <div id="bar-yaw" class="axis-bar-fill" style="width: 50%; background: #10b981;"></div>
+                </div>
+                <span id="val-yaw" class="axis-val">0.00°</span>
             </div>
         </div>
 
         <div class="panel-header" style="margin-top: 8px;">
-            <h3>📈 RIC 轨道残差 (径向/切向/法向)</h3>
+            <h3>📈 姿态角时程曲线</h3>
         </div>
-        <div class="chart-wrapper">
-            <canvas id="chart-ric-residuals"></canvas>
+        <div class="chart-container-box">
+            <canvas id="chart-attitude"></canvas>
+        </div>
+    </aside>
+
+    <!-- Right HUD Panel: ML Residual Learning & Mission Ops -->
+    <aside id="right-panel" class="glass-panel">
+        <div class="panel-header">
+            <h3>🧠 ML 轨道残差学习 (LSTM)</h3>
+            <span style="font-size: 10px; color: var(--color-telemetry); font-family: var(--font-mono);">RIC FRAME</span>
+        </div>
+
+        <div class="ml-hero-card">
+            <div class="ml-hero-title">1小时预报误差下降率 (1-σ Confidence)</div>
+            <div class="ml-hero-metric">
+                <span class="big-number" id="hero-reduction">85.5%</span>
+                <span class="badge-desc">超越 10% 目标</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); margin-top: 4px;">
+                <span>SGP4原始: <b id="hero-sgp4-err" style="color:#ef4444;">14,641 m</b></span>
+                <span>ML修正: <b id="hero-hybrid-err" style="color:var(--color-nominal);">2,120 m</b></span>
+            </div>
         </div>
 
         <div class="panel-header" style="margin-top: 10px;">
-            <h3>📶 测控站过境窗口预报 (Pass Schedule)</h3>
+            <h3>📊 RIC 轨道残差时序 (径向/沿轨/法向)</h3>
         </div>
-        <div id="ground-passes-list" style="max-height: 110px; overflow-y: auto;">
-            <div class="pass-timeline-item">
-                <div class="station-name">📍 Beijing Tracking Station</div>
-                <div>AOS: 11:46:30 | 持续: 600s | 最大仰角: 48.9°</div>
-            </div>
-            <div class="pass-timeline-item">
-                <div class="station-name">📍 Kashi Ground Station</div>
-                <div>AOS: 14:59:30 | 持续: 630s | 最大仰角: 69.2°</div>
-            </div>
+        <div class="chart-container-box">
+            <canvas id="chart-ric"></canvas>
         </div>
 
-        <div class="panel-header" style="margin-top: 12px;">
+        <div class="panel-header" style="margin-top: 10px;">
+            <h3>📡 测控站过境窗口预报 (Pass Schedule)</h3>
+        </div>
+        <div class="pass-timeline-list" id="ground-passes-list">
+            <!-- Dynamically populated by main.js -->
+        </div>
+
+        <div class="panel-header" style="margin-top: 10px;">
             <h3>⚡ 数值积分方法对比 (RK4 vs RKF78 vs ABM4)</h3>
         </div>
-        <div class="chart-wrapper">
+        <div class="chart-container-box">
             <canvas id="chart-benchmark"></canvas>
         </div>
     </aside>
 
     <!-- Bottom Mission Control Dock -->
     <footer id="bottom-dock" class="glass-panel">
-        <button id="btn-step-back" class="time-btn" title="单步后退 30秒">⏮</button>
-        <button id="btn-play-pause" class="time-btn" title="播放/暂停推演 (按空格键)">⏸</button>
-        <button id="btn-step-fwd" class="time-btn" title="单步前进 30秒">⏭</button>
-        <span id="badge-speed" class="speed-badge" title="切换模拟步进倍速 (1x/5x/15x/60x/300x)">1x</span>
-        <input type="range" id="time-slider" class="timeline-slider" min="0" max="100" value="0">
+        <div class="dock-playback-group">
+            <button id="btn-step-back" class="dock-icon-btn" title="单步后退 30秒">⏮</button>
+            <button id="btn-play-pause" class="dock-icon-btn" title="播放/暂停推演 (快捷键: 空格)">⏸</button>
+            <button id="btn-step-fwd" class="dock-icon-btn" title="单步前进 30秒">⏭</button>
+            <span id="badge-speed" class="dock-speed-badge" title="切换模拟步进倍速 (1x/5x/15x/60x/300x)">1x</span>
+        </div>
 
-        <div class="toggle-group">
+        <div class="dock-timeline-container">
+            <input type="range" id="time-slider" class="dock-slider" min="0" max="100" value="0">
+        </div>
+
+        <div class="dock-tools-group">
+            <button id="btn-quick-closeup" class="dock-pill-btn" title="聚焦近距离观察 3D 卫星结构细节">
+                🔍 卫星特写
+            </button>
             <button id="btn-toggle-hud" class="dock-pill-btn active" title="显示/隐藏 3D 浮动标牌">
                 🏷️ 3D标牌
             </button>
@@ -269,9 +281,11 @@
     </footer>
 
     <!-- Maneuver Planning Modal ("回归正轨过程") -->
-    <div id="maneuver-modal" class="glass-panel">
-        <div class="modal-title">🚀 轨道维持与矫正机动方案 (Station-Keeping)</div>
-        <div id="maneuver-content" class="modal-content-box">
+    <div id="maneuver-modal" class="glass-panel" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:460px; z-index:100; padding:20px;">
+        <div class="modal-header">
+            <h3>🚀 轨道维持与矫正机动方案 (Station-Keeping)</h3>
+        </div>
+        <div id="maneuver-content" style="font-size:12px; line-height:1.6; color:var(--text-secondary); margin:12px 0;">
             <!-- Injected by maneuvers.js -->
         </div>
         <div class="modal-btn-row">
@@ -282,82 +296,84 @@
 
     <!-- Synthetic Telemetry Data Calibration & Accuracy Tuning Modal -->
     <div id="synthetic-modal" class="glass-panel">
-        <div class="modal-title">🧪 遥测假数据录入与预测数学模型调优</div>
-        <p style="font-size:11px;color:var(--text-muted);margin-bottom:14px;line-height:1.5;">
+        <div class="modal-header">
+            <h3>🧪 遥测假数据录入与预测数学模型调优</h3>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:14px; line-height:1.5;">
             录入一段可调的合成观测假数据，通过高阶摄动+姿态耦合数学预测模型实时校准与预报。调节观测参数可直观改变数学模型的预测准确度。
         </p>
 
-        <div class="tuning-grid">
+        <div class="modal-form-group">
             <!-- 1. Obs Count -->
-            <div class="tuning-slider-row">
-                <div class="tuning-label-row">
-                    <span>📡 观测采样点数 (Observation Points N):</span>
-                    <span class="tuning-badge" id="badge-tune-obs">10 点</span>
+            <div class="form-row">
+                <label>📡 观测采样点数 (Observation Points N):</label>
+                <div class="slider-group">
+                    <input type="range" id="slider-tune-obs" class="dock-slider" min="3" max="30" value="10" step="1">
+                    <span id="badge-tune-obs" style="font-family:var(--font-mono); font-size:11px; width:45px; text-align:right;">10 点</span>
                 </div>
-                <input type="range" id="slider-tune-obs" class="tuning-slider" min="3" max="30" value="10" step="1">
             </div>
 
             <!-- 2. Noise Sigma -->
-            <div class="tuning-slider-row">
-                <div class="tuning-label-row">
-                    <span>📊 传感器测距噪声 (&sigma;):</span>
-                    <span class="tuning-badge" id="badge-tune-noise">3.0 m</span>
+            <div class="form-row">
+                <label>🎯 传感器观测噪声 (Sensor Noise 1-σ):</label>
+                <div class="slider-group">
+                    <input type="range" id="slider-tune-noise" class="dock-slider" min="0" max="100" value="15" step="1">
+                    <span id="badge-tune-noise" style="font-family:var(--font-mono); font-size:11px; width:45px; text-align:right;">15.0 m</span>
                 </div>
-                <input type="range" id="slider-tune-noise" class="tuning-slider" min="0.5" max="30.0" value="3.0" step="0.5">
             </div>
 
-            <!-- 3. Drag Cd Multiplier -->
-            <div class="tuning-slider-row">
-                <div class="tuning-label-row">
-                    <span>💨 大气阻力系数 (C_D):</span>
-                    <span class="tuning-badge" id="badge-tune-cd">2.20</span>
+            <!-- 3. Atmosphere Cd Multiplier -->
+            <div class="form-row">
+                <label>💨 大气阻力乘子 (Drag Multiplier C_D):</label>
+                <div class="slider-group">
+                    <input type="range" id="slider-tune-cd" class="dock-slider" min="1.0" max="4.0" value="2.2" step="0.1">
+                    <span id="badge-tune-cd" style="font-family:var(--font-mono); font-size:11px; width:45px; text-align:right;">2.20</span>
                 </div>
-                <input type="range" id="slider-tune-cd" class="tuning-slider" min="1.5" max="3.5" value="2.2" step="0.1">
             </div>
 
-            <!-- 4. Dynamics & Attitude Options -->
-            <div style="display:flex;gap:12px;margin-top:4px;">
-                <div style="flex:1;">
-                    <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">姿态耦合模式</label>
-                    <select id="select-tune-attitude" class="select-control" style="width:100%;">
-                        <option value="NADIR">对地指向 (Nadir - 迎风面最小)</option>
-                        <option value="SUN">对日定向 (Sun - 太阳翼迎风阻力调制)</option>
-                    </select>
-                </div>
-                <div style="flex:1;">
-                    <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">数值积分算法</label>
-                    <select id="select-tune-integrator" class="select-control" style="width:100%;">
-                        <option value="RKF78">Runge-Kutta-Fehlberg 7(8) (高精自适应)</option>
-                        <option value="ABM4">Adams-Bashforth-Moulton 4阶多步法</option>
-                        <option value="RK4">经典 4 阶龙格库塔 (定步长)</option>
-                    </select>
-                </div>
+            <!-- 4. Coupled Attitude Mode -->
+            <div class="form-row">
+                <label>🔄 耦合姿态模式 (Cross-sectional Area):</label>
+                <select id="select-tune-attitude" class="select-control" style="width: 260px;">
+                    <option value="NADIR">对地定向 (最小迎风阻力面积 2.2 m²)</option>
+                    <option value="SUN">对日定向 (最大光照帆板迎风 8.5 m²)</option>
+                </select>
+            </div>
+
+            <!-- 5. Integrator Core Selection -->
+            <div class="form-row">
+                <label>⚙️ 数值积分算法核心 (Integrator Engine):</label>
+                <select id="select-tune-integrator" class="select-control" style="width: 260px;">
+                    <option value="COWELL_RKF78">RKF78 (7/8阶自适应变步长 - 极致精度基准)</option>
+                    <option value="COWELL_ABM4">ABM4 (4阶多步预报-校正法 - 算力效率最高)</option>
+                    <option value="COWELL_RK4">RK4 (4阶经典龙格库塔 - 定步长基准)</option>
+                </select>
             </div>
         </div>
 
-        <!-- Real-time Accuracy Feedback Box -->
-        <div class="tuning-feedback-box">
+        <!-- Real-Time Convergence & Accuracy Readout -->
+        <div class="modal-feedback-card">
             <div class="feedback-row">
-                <span>校准前先验误差 (Prior RMS):</span>
-                <span id="tune-prior-err" style="color:#ff3366;">54.0 km</span>
+                <span style="color:var(--text-secondary);">校准前先验误差 (Prior RMS):</span>
+                <span id="tune-prior-err" style="color:#ef4444; font-weight:700;">54.0 km</span>
             </div>
             <div class="feedback-row">
-                <span>校准后预测误差 (Posterior RMS):</span>
-                <span id="tune-post-err" style="color:#00e5ff;">46.8 km</span>
+                <span style="color:var(--text-secondary);">校准后预测误差 (Posterior RMS):</span>
+                <span id="tune-post-err" style="color:var(--color-telemetry); font-weight:700;">46.8 km</span>
             </div>
             <div class="feedback-row">
-                <span>数学模型精度改善率:</span>
-                <span id="tune-improvement" style="color:var(--accent-green);font-weight:700;">+13.4% (误差收敛)</span>
+                <span style="color:var(--text-secondary);">数学模型精度改善率:</span>
+                <span id="tune-improvement" style="color:var(--color-nominal); font-weight:700;">+13.4% (误差收敛)</span>
             </div>
             <div class="feedback-row">
-                <span>反演校准阻力系数 (Calibrated C_D):</span>
-                <span id="tune-est-cd" style="color:var(--accent-amber);">2.34</span>
+                <span style="color:var(--text-secondary);">反演校准阻力系数 (Calibrated C_D):</span>
+                <span id="tune-est-cd" style="color:var(--color-warning); font-weight:700;">2.34</span>
             </div>
         </div>
 
         <div class="modal-btn-row">
             <button id="btn-close-synthetic-modal" class="dock-pill-btn">关闭</button>
-            <button id="btn-run-synthetic-calibration" class="nav-btn gold">🚀 录入假数据并预测 (Calibrate & Predict)</button>
+            <button id="btn-run-synthetic-calibration" class="nav-btn primary">🚀 录入假数据并预测 (Calibrate & Predict)</button>
         </div>
     </div>
 
