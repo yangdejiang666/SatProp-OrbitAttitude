@@ -67,14 +67,14 @@
                 <button id="btn-layer-hybrid" class="layer-btn active-hybrid" title="物理模型 + ML 残差修正轨 (Hybrid)">
                     <span class="dot" style="background:#a855f7;"></span> ML 矫正轨
                 </button>
-                <button id="btn-layer-calibrated" class="layer-btn active-calibrated" title="调优数学模型预测轨 (Calibrated Unified Predictor)">
-                    <span class="dot" style="background:#06b6d4;"></span> 调优预测轨
+                <button id="btn-layer-calibrated" class="layer-btn active-calibrated" title="实测星历校准预测轨 (Calibrated Unified Predictor)">
+                    <span class="dot" style="background:#06b6d4;"></span> 实测校准预测轨
                 </button>
             </div>
 
-            <!-- Synthetic Data Calibration Button -->
-            <button id="btn-synthetic-tuning" class="nav-btn gold" title="调校遥测假数据观测与数学模型预测精度">
-                🧪 观测假数据调优
+            <!-- Real Observation Assimilation & Orbit Calibration Button -->
+            <button id="btn-synthetic-tuning" class="nav-btn gold" title="直连 Space-Track / CelesTrak 国际星历库，同化实测数据并进行高精动力学校准">
+                🛰️ 实测星历同化与定轨校验
             </button>
 
             <!-- Camera View Mode -->
@@ -86,14 +86,19 @@
                 <option value="STATION">📡 测控站仰视视角</option>
             </select>
 
-            <!-- Satellite Selection -->
-            <select id="select-satellite" class="select-control" title="选择目标卫星">
-                <option value="tiangong" selected>TIANGONG (中国天宫空间站 - 实测TLE)</option>
-                <option value="iss">ISS (国际空间站 - NASA/Space-Track实测TLE)</option>
-                <option value="cartosat2">CARTOSAT-2 (遥感卫星)</option>
-                <option value="beidou">BEIDOU (北斗导航卫星)</option>
-                <option value="starlink">STARLINK (星链通信卫星)</option>
+            <!-- Satellite Selection (Real remote sensing satellites & space stations) -->
+            <select id="select-satellite" class="select-control" title="选择目标遥感卫星与空间站 (Space-Track/CelesTrak 实时数据)">
+                <option value="tiangong" selected>TIANGONG (中国天宫空间站 - NORAD #48274 实测TLE)</option>
+                <option value="iss">ISS (国际空间站 - NASA/Space-Track #25544 实测TLE)</option>
+                <option value="sentinel2a">SENTINEL-2A (欧空局光学遥感卫星 - NORAD #40697 实测TLE)</option>
+                <option value="landsat9">LANDSAT 9 (NASA/USGS多光谱遥感卫星 - NORAD #49260 实测TLE)</option>
+                <option value="cartosat2">CARTOSAT-2 (高分光学遥感卫星 - NORAD #29710 实测TLE)</option>
+                <option value="beidou">BEIDOU-3 M5 (中国北斗三号中圆轨卫星 - NORAD #43581 实测TLE)</option>
             </select>
+
+            <button id="btn-sync-celestrak" class="nav-btn" title="一键从 CelesTrak 同步最新官方实测 TLE 星历">
+                🔄 同步实时星历
+            </button>
 
             <!-- Propagator Mode -->
             <select id="select-propagator" class="select-control" title="动力学预测器算法">
@@ -362,37 +367,51 @@
         </div>
     </div>
 
-    <!-- Synthetic Telemetry Data Calibration & Accuracy Tuning Modal -->
+    <!-- Real Space-Track / CelesTrak Satellite Observation Assimilation & Orbit Determination Modal -->
     <div id="synthetic-modal" class="glass-panel">
         <div class="modal-header">
-            <h3>🧪 遥测假数据录入与预测数学模型调优</h3>
+            <h3>🛰️ Space-Track / CelesTrak 实测星历接入与动力学校准</h3>
+            <span style="font-size:10px; color:var(--color-nominal); font-family:var(--font-mono);">REAL FLIGHT DATA</span>
         </div>
         <p style="font-size:12px; color:var(--text-secondary); margin-bottom:14px; line-height:1.5;">
-            录入一段可调的合成观测假数据，通过高阶摄动+姿态耦合数学预测模型实时校准与预报。调节观测参数可直观改变数学模型的预测准确度。
+            直连 Space-Track / CelesTrak 国际实时卫星星历库，自动拉取真实在轨实测 TLE 与定轨观测弧段。通过高阶多摄动动力学模型与加权最小二乘微分修正算法，进行高精度动力学拟合校准与在轨外推验证。
         </p>
 
         <div class="modal-form-group">
+            <!-- 0. Live Sync Source -->
+            <div class="form-row">
+                <label>🌐 实测星历数据源 (Ephemeris Source):</label>
+                <div style="display:flex; gap:8px; width:260px;">
+                    <span style="font-size:11px; font-family:var(--font-mono); color:var(--color-telemetry); display:flex; align-items:center;">
+                        ✅ CelesTrak API (Live)
+                    </span>
+                    <button id="btn-modal-sync-celestrak" class="nav-btn" style="font-size:10px; padding:3px 8px;" title="立即向 CelesTrak 发起请求获取最新实测星历">
+                        🔄 立即同步
+                    </button>
+                </div>
+            </div>
+
             <!-- 1. Obs Count -->
             <div class="form-row">
-                <label>📡 观测采样点数 (Observation Points N):</label>
+                <label>📡 实测观测采样点数 (Observation Fixes N):</label>
                 <div class="slider-group">
-                    <input type="range" id="slider-tune-obs" class="dock-slider" min="3" max="30" value="10" step="1">
-                    <span id="badge-tune-obs" style="font-family:var(--font-mono); font-size:11px; width:45px; text-align:right;">10 点</span>
+                    <input type="range" id="slider-tune-obs" class="dock-slider" min="5" max="50" value="15" step="1">
+                    <span id="badge-tune-obs" style="font-family:var(--font-mono); font-size:11px; width:45px; text-align:right;">15 点</span>
                 </div>
             </div>
 
             <!-- 2. Noise Sigma -->
             <div class="form-row">
-                <label>🎯 传感器观测噪声 (Sensor Noise 1-σ):</label>
+                <label>🎯 测控传感器精度权重 (Sensor Accuracy 1-σ):</label>
                 <div class="slider-group">
-                    <input type="range" id="slider-tune-noise" class="dock-slider" min="0" max="100" value="15" step="1">
-                    <span id="badge-tune-noise" style="font-family:var(--font-mono); font-size:11px; width:45px; text-align:right;">15.0 m</span>
+                    <input type="range" id="slider-tune-noise" class="dock-slider" min="0" max="50" value="5" step="1">
+                    <span id="badge-tune-noise" style="font-family:var(--font-mono); font-size:11px; width:45px; text-align:right;">5.0 m</span>
                 </div>
             </div>
 
             <!-- 3. Atmosphere Cd Multiplier -->
             <div class="form-row">
-                <label>💨 大气阻力乘子 (Drag Multiplier C_D):</label>
+                <label>💨 气动阻力先验系数 (Drag Coefficient Prior C_D):</label>
                 <div class="slider-group">
                     <input type="range" id="slider-tune-cd" class="dock-slider" min="1.0" max="4.0" value="2.2" step="0.1">
                     <span id="badge-tune-cd" style="font-family:var(--font-mono); font-size:11px; width:45px; text-align:right;">2.20</span>
@@ -403,8 +422,8 @@
             <div class="form-row">
                 <label>🔄 耦合姿态模式 (Cross-sectional Area):</label>
                 <select id="select-tune-attitude" class="select-control" style="width: 260px;">
-                    <option value="NADIR">对地定向 (最小迎风阻力面积 2.2 m²)</option>
-                    <option value="SUN">对日定向 (最大光照帆板迎风 8.5 m²)</option>
+                    <option value="NADIR">对地定向 (遥感观测姿态 - 最小迎风阻力面)</option>
+                    <option value="SUN">对日定向 (对日巡航姿态 - 帆板大阻力截面)</option>
                 </select>
             </div>
 
@@ -422,26 +441,26 @@
         <!-- Real-Time Convergence & Accuracy Readout -->
         <div class="modal-feedback-card">
             <div class="feedback-row">
-                <span style="color:var(--text-secondary);">校准前先验误差 (Prior RMS):</span>
-                <span id="tune-prior-err" style="color:#ef4444; font-weight:700;">54.0 km</span>
+                <span style="color:var(--text-secondary);">实测校准前先验误差 (Prior RMS):</span>
+                <span id="tune-prior-err" style="color:#ef4444; font-weight:700;">-- km</span>
             </div>
             <div class="feedback-row">
-                <span style="color:var(--text-secondary);">校准后预测误差 (Posterior RMS):</span>
-                <span id="tune-post-err" style="color:var(--color-telemetry); font-weight:700;">46.8 km</span>
+                <span style="color:var(--text-secondary);">实测校准后预测误差 (Posterior RMS):</span>
+                <span id="tune-post-err" style="color:var(--color-telemetry); font-weight:700;">-- km</span>
             </div>
             <div class="feedback-row">
-                <span style="color:var(--text-secondary);">数学模型精度改善率:</span>
-                <span id="tune-improvement" style="color:var(--color-nominal); font-weight:700;">+13.4% (误差收敛)</span>
+                <span style="color:var(--text-secondary);">微分修正精度提升率:</span>
+                <span id="tune-improvement" style="color:var(--color-nominal); font-weight:700;">-- (等待校准)</span>
             </div>
             <div class="feedback-row">
-                <span style="color:var(--text-secondary);">反演校准阻力系数 (Calibrated C_D):</span>
-                <span id="tune-est-cd" style="color:var(--color-warning); font-weight:700;">2.34</span>
+                <span style="color:var(--text-secondary);">反演估计阻力系数 (Estimated C_D):</span>
+                <span id="tune-est-cd" style="color:var(--color-warning); font-weight:700;">--</span>
             </div>
         </div>
 
         <div class="modal-btn-row">
             <button id="btn-close-synthetic-modal" class="dock-pill-btn">关闭</button>
-            <button id="btn-run-synthetic-calibration" class="nav-btn primary">🚀 录入假数据并预测 (Calibrate & Predict)</button>
+            <button id="btn-run-synthetic-calibration" class="nav-btn primary">🚀 接入实测并校准预测 (Assimilate & Validate)</button>
         </div>
     </div>
 

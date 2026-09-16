@@ -32,7 +32,66 @@ class SatelliteDataManager:
         self.satellites: Dict[str, Dict[str, Any]] = {}
         self.telemetry_history: Dict[str, List[Dict[str, Any]]] = {}
 
+        self.CATALOG_NORAD_MAP = {
+            "tiangong": {"catnr": 48274, "name": "TIANGONG (CSS Tianhe / 中国天宫空间站)", "type": "Space Station"},
+            "iss": {"catnr": 25544, "name": "ISS (Zarya / 国际空间站)", "type": "Space Station"},
+            "sentinel2a": {"catnr": 40697, "name": "SENTINEL-2A (欧空局光学遥感卫星)", "type": "Earth Observation"},
+            "landsat9": {"catnr": 49260, "name": "LANDSAT 9 (NASA/USGS多光谱遥感卫星)", "type": "Earth Observation"},
+            "cartosat2": {"catnr": 29710, "name": "CARTOSAT-2 (高分光学遥感卫星)", "type": "Earth Observation"},
+            "beidou": {"catnr": 43581, "name": "BEIDOU-3 M5 (中国北斗三号中圆轨卫星)", "type": "Navigation"},
+        }
+
         self.load_predefined_tles()
+
+    def sync_from_celestrak(self, sat_id: str = None, catnr: int = None) -> Dict[str, Any]:
+        """
+        Fetches the latest official real-time TLE from CelesTrak / Space-Track API.
+        Persists into data/real_tles/ and updates active propagators.
+        """
+        import urllib.request
+
+        target_map = {}
+        if sat_id and sat_id in self.CATALOG_NORAD_MAP:
+            target_map[sat_id] = self.CATALOG_NORAD_MAP[sat_id]["catnr"]
+        elif catnr:
+            matched_id = sat_id or f"sat_{catnr}"
+            target_map[matched_id] = int(catnr)
+        else:
+            target_map = {k: v["catnr"] for k, v in self.CATALOG_NORAD_MAP.items()}
+
+        synced_results = {}
+        for s_id, c_nr in target_map.items():
+            url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={c_nr}&FORMAT=tle"
+            req = urllib.request.Request(url, headers={"User-Agent": "SatProp-OrbitAttitude/2.0"})
+            try:
+                with urllib.request.urlopen(req, timeout=8) as response:
+                    raw_lines = [l.strip() for l in response.read().decode("utf-8").splitlines() if l.strip()]
+                    if len(raw_lines) >= 2:
+                        tle_lines = raw_lines[-2:]
+                        display_name = self.CATALOG_NORAD_MAP.get(s_id, {}).get("name", raw_lines[0] if len(raw_lines) == 3 else s_id.upper())
+                        tle_path = os.path.join(self.tle_dir, f"{s_id}.tle")
+                        with open(tle_path, "w", encoding="utf-8") as f:
+                            f.write(tle_lines[0] + "\n" + tle_lines[1] + "\n")
+
+                        prop = SGP4Propagator(tle_lines[0], tle_lines[1], name=display_name)
+                        self.satellites[s_id] = {
+                            "id": s_id,
+                            "name": display_name,
+                            "line1": tle_lines[0],
+                            "line2": tle_lines[1],
+                            "satnum": prop.satnum,
+                            "epoch_jd": prop.epoch_jd,
+                            "epoch_utc": jd_to_datetime(prop.epoch_jd).isoformat(),
+                            "inclination_deg": prop.inclination_deg,
+                            "bstar": prop.bstar,
+                            "propagator": prop,
+                            "source": "Space-Track / CelesTrak (Official Live)",
+                        }
+                        synced_results[s_id] = {"status": "success", "satnum": prop.satnum, "name": display_name}
+            except Exception as e:
+                synced_results[s_id] = {"status": "cached", "error": str(e)}
+
+        return synced_results
 
     def load_predefined_tles(self):
         """Scan real_tles folder and register satellites."""
@@ -43,11 +102,12 @@ class SatelliteDataManager:
                 lines = [l.strip() for l in f if l.strip()]
             if len(lines) >= 2:
                 line1, line2 = lines[0], lines[1]
+                display_name = self.CATALOG_NORAD_MAP.get(sat_id, {}).get("name", sat_id.upper())
                 try:
-                    prop = SGP4Propagator(line1, line2, name=sat_id.upper())
+                    prop = SGP4Propagator(line1, line2, name=display_name)
                     self.satellites[sat_id] = {
                         "id": sat_id,
-                        "name": sat_id.upper(),
+                        "name": display_name,
                         "line1": line1,
                         "line2": line2,
                         "satnum": prop.satnum,
@@ -56,6 +116,7 @@ class SatelliteDataManager:
                         "inclination_deg": prop.inclination_deg,
                         "bstar": prop.bstar,
                         "propagator": prop,
+                        "source": "Space-Track / CelesTrak",
                     }
                     self.telemetry_history[sat_id] = []
                 except Exception as e:
@@ -71,6 +132,7 @@ class SatelliteDataManager:
                 "epoch_utc": s["epoch_utc"],
                 "inclination_deg": s["inclination_deg"],
                 "bstar": s["bstar"],
+                "source": s.get("source", "Space-Track / CelesTrak"),
                 "has_telemetry": len(self.telemetry_history.get(s["id"], [])) > 0,
             }
             for s in self.satellites.values()

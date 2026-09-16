@@ -361,6 +361,12 @@ class SpaceScene {
             case 'iss':
                 this.buildHighDetailISSStation(this.satGroup);
                 break;
+            case 'sentinel2a':
+                this.buildSentinel2AModel(this.satGroup);
+                break;
+            case 'landsat9':
+                this.buildLandsat9Model(this.satGroup);
+                break;
             case 'beidou':
                 this.buildBeidouModel(this.satGroup);
                 break;
@@ -605,6 +611,89 @@ class SpaceScene {
             panel.position.set(side * 0.95, 0, 0);
             group.add(panel);
         });
+    }
+
+    // Model: ESA Sentinel-2A Multispectral Optical Remote Sensing Satellite
+    buildSentinel2AModel(group) {
+        const busMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.3 });
+        const goldMliMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.25 });
+        const solarMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.95, roughness: 0.1 });
+
+        // Hexagonal / box bus
+        const bus = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.65, 1.1), busMat);
+        group.add(bus);
+
+        // Gold foil insulation payload compartment
+        const payloadBay = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.58, 0.4), goldMliMat);
+        payloadBay.position.set(0, 0, 0.5);
+        group.add(payloadBay);
+
+        // Multispectral Instrument (MSI) aperture lens (Nadir pointing)
+        const msiBaffle = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.18, 0.24, 0.35, 24),
+            new THREE.MeshStandardMaterial({ color: 0x020617, metalness: 0.9, roughness: 0.2 })
+        );
+        msiBaffle.position.set(0, -0.32, 0.35);
+        msiBaffle.rotation.x = Math.PI / 2;
+        group.add(msiBaffle);
+
+        const msiLens = new THREE.Mesh(
+            new THREE.CircleGeometry(0.16, 24),
+            new THREE.MeshStandardMaterial({ color: 0x1d4ed8, metalness: 0.95, roughness: 0.05 })
+        );
+        msiLens.position.set(0, -0.32, 0.53);
+        group.add(msiLens);
+
+        // Single asymmetric deployable solar array wing (Sentinel-2 hallmark)
+        const wingArm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.4, 12), busMat);
+        wingArm.rotation.z = Math.PI / 2;
+        wingArm.position.set(0.5, 0, -0.2);
+        group.add(wingArm);
+
+        const solarWing = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.03, 0.85), solarMat);
+        solarWing.position.set(1.8, 0, -0.2);
+        group.add(solarWing);
+    }
+
+    // Model: NASA/USGS Landsat 9 Earth Observation Satellite
+    buildLandsat9Model(group) {
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.3 });
+        const goldMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.92, roughness: 0.2 });
+        const solarMat = new THREE.MeshStandardMaterial({ color: 0x0a192f, metalness: 0.96, roughness: 0.1 });
+
+        // Octagonal main instrument bus
+        const bus = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.25, 8), bodyMat);
+        bus.rotation.x = Math.PI / 2;
+        group.add(bus);
+
+        // OLI-2 (Operational Land Imager 2) telescope cylinder
+        const oli2 = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.22, 0.22, 0.45, 20),
+            goldMat
+        );
+        oli2.position.set(0, -0.22, 0.6);
+        oli2.rotation.x = Math.PI / 2;
+        group.add(oli2);
+
+        // TIRS-2 (Thermal Infrared Sensor 2) cylinder
+        const tirs2 = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.14, 0.14, 0.35, 18),
+            new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.85, roughness: 0.2 })
+        );
+        tirs2.position.set(0.2, 0.15, 0.6);
+        tirs2.rotation.x = Math.PI / 2;
+        group.add(tirs2);
+
+        // Deployable solar wing
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.04, 0.9), solarMat);
+        wing.position.set(-1.5, 0, 0);
+        group.add(wing);
+
+        // High gain communication gimbaled dish
+        const hgaDish = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 12, 0, Math.PI), bodyMat);
+        hgaDish.position.set(0, 0.42, -0.3);
+        hgaDish.rotation.x = Math.PI / 3;
+        group.add(hgaDish);
     }
 
     // Model: Starlink Communications Flat Pack

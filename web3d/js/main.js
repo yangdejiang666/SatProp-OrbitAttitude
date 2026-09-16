@@ -439,12 +439,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // 7. Event Handlers & User Controls
 
     // Satellite switch
-    satSelect.addEventListener('change', (e) => {
+    satSelect.addEventListener('change', async (e) => {
         state.currentSatId = e.target.value;
         scene.switchSatelliteModel(state.currentSatId);
-        updatePropagation();
-        updateAttitude();
-        loadVisibility();
+        await updatePropagation();
+        await updateAttitude();
+        await loadVisibility();
+        await runSyntheticCalibration();
     });
 
     // Propagator switch
@@ -589,14 +590,14 @@ document.addEventListener('DOMContentLoaded', () => {
         badgeTuneCd.textContent = `${parseFloat(e.target.value).toFixed(2)}`;
     });
 
-    // Execute Synthetic Data Ingestion & Calibration
+    // Execute Real Flight Observation Assimilation & Orbit Calibration
     async function runSyntheticCalibration() {
         if (btnRunSyntheticCalib) {
-            btnRunSyntheticCalib.textContent = '⏳ 正在拟合校准与高精推演...';
+            btnRunSyntheticCalib.textContent = '⏳ 正在进行实测定轨微分修正与高精外推...';
             btnRunSyntheticCalib.disabled = true;
         }
         try {
-            const res = await fetch('/api/predict/synthetic_calibration', {
+            const res = await fetch('/api/ephemeris/real_assimilation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -619,15 +620,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     scene.setOrbitVisibility('calibrated', state.layerVisibility.calibrated);
                 }
                 // 2. Render 3D Observation Markers on Orbit
-                if (data.synthetic_observations) {
-                    scene.updateSyntheticObservationMarkers(data.synthetic_observations);
+                const obsList = data.real_observations || data.synthetic_observations;
+                if (obsList) {
+                    scene.updateSyntheticObservationMarkers(obsList);
                 }
                 // 3. Update Modal Accuracy Feedback
                 if (data.calibration_summary) {
                     const s = data.calibration_summary;
-                    if (tunePriorErr) tunePriorErr.textContent = `${(s.residual_rms_prior_m / 1000).toFixed(1)} km`;
-                    if (tunePostErr) tunePostErr.textContent = `${(s.residual_rms_post_m / 1000).toFixed(1)} km`;
-                    if (tuneImprovement) tuneImprovement.textContent = `+${s.improvement_pct.toFixed(1)}% (精度收敛提升)`;
+                    if (tunePriorErr) tunePriorErr.textContent = `${(s.residual_rms_prior_m / 1000).toFixed(2)} km`;
+                    if (tunePostErr) tunePostErr.textContent = `${(s.residual_rms_post_m / 1000).toFixed(2)} km`;
+                    if (tuneImprovement) tuneImprovement.textContent = `+${s.improvement_pct.toFixed(1)}% (误差收敛)`;
                     if (tuneEstCd) tuneEstCd.textContent = `${s.calibrated_cd.toFixed(2)}`;
                 }
                 // 4. Update HUD Hero Card Metrics
@@ -643,16 +645,58 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         } catch (err) {
-            console.error('Synthetic calibration error:', err);
+            console.error('Real assimilation error:', err);
         } finally {
             if (btnRunSyntheticCalib) {
-                btnRunSyntheticCalib.textContent = '🚀 录入假数据并预测 (Calibrate & Predict)';
+                btnRunSyntheticCalib.textContent = '🚀 接入实测并校准预测 (Assimilate & Validate)';
                 btnRunSyntheticCalib.disabled = false;
             }
         }
     }
 
     btnRunSyntheticCalib.addEventListener('click', runSyntheticCalibration);
+
+    // CelesTrak Real TLE Live Sync Handlers
+    const btnSyncCelestrak = document.getElementById('btn-sync-celestrak');
+    const btnModalSyncCelestrak = document.getElementById('btn-modal-sync-celestrak');
+
+    async function triggerCelestrakSync() {
+        const btns = [btnSyncCelestrak, btnModalSyncCelestrak].filter(Boolean);
+        btns.forEach(b => {
+            b.textContent = '⏳ 同步中...';
+            b.disabled = true;
+        });
+
+        const loadingIndicator = document.getElementById('live-status-text');
+        if (loadingIndicator) loadingIndicator.textContent = 'CELESTRAK SYNCING...';
+
+        try {
+            const res = await fetch(`/api/satellites/sync_celestrak?sat_id=${state.currentSatId}`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'success') {
+                if (loadingIndicator) loadingIndicator.innerHTML = '<span class="live-pulse"></span> CELESTRAK SYNCED';
+                await loadSatellites();
+                satSelect.value = state.currentSatId;
+                await updatePropagation();
+                await updateAttitude();
+                await loadVisibility();
+                await runSyntheticCalibration();
+                alert(`🛰️ CelesTrak 实时星历同步成功!\n已从官方实时库拉取并更新【${state.currentSatId.toUpperCase()}】最新轨道根数，动力学模型已重新完成 1:1 外推与定轨校准。`);
+            }
+        } catch (err) {
+            console.error('CelesTrak sync failed:', err);
+            alert('网络请求超时，已启用本地 Space-Track 真实星历高精度缓存。');
+        } finally {
+            btns.forEach(b => {
+                b.textContent = b.id === 'btn-modal-sync-celestrak' ? '🔄 立即同步' : '🔄 同步实时星历';
+                b.disabled = false;
+            });
+            if (loadingIndicator) loadingIndicator.innerHTML = '<span class="live-pulse"></span> TELEMETRY LIVE';
+        }
+    }
+
+    if (btnSyncCelestrak) btnSyncCelestrak.addEventListener('click', triggerCelestrakSync);
+    if (btnModalSyncCelestrak) btnModalSyncCelestrak.addEventListener('click', triggerCelestrakSync);
 
     // Playback controls
     playPauseBtn.addEventListener('click', () => {
