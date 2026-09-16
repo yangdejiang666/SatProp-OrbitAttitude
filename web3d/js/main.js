@@ -106,11 +106,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const elPitch = document.getElementById('val-pitch');
     const elYaw = document.getElementById('val-yaw');
 
-    const elBarRoll = document.getElementById('fill-roll');
-    const elBarPitch = document.getElementById('fill-pitch');
-    const elBarYaw = document.getElementById('fill-yaw');
+    const elBarRoll = document.getElementById('bar-roll') || document.getElementById('fill-roll');
+    const elBarPitch = document.getElementById('bar-pitch') || document.getElementById('fill-pitch');
+    const elBarYaw = document.getElementById('bar-yaw') || document.getElementById('fill-yaw');
 
-    const elHeroReduction = document.getElementById('hero-reduction-val');
+    const elHeroReduction = document.getElementById('hero-reduction') || document.getElementById('hero-reduction-val');
     const elHeroSgp4Err = document.getElementById('hero-sgp4-err');
     const elHeroHybridErr = document.getElementById('hero-hybrid-err');
 
@@ -207,6 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     sat_id: state.currentSatId,
                     propagator: state.currentPropagator,
+                    attitude_mode: state.attitudeMode,
                     duration_hours: 2.5,
                     dt_step: 30.0
                 })
@@ -452,10 +453,11 @@ document.addEventListener('DOMContentLoaded', () => {
         updatePropagation();
     });
 
-    // Attitude mode switch
+    // Attitude mode switch (triggers 1:1 orbit drag area and attitude model recalculation)
     attModeSelect.addEventListener('change', (e) => {
         state.attitudeMode = e.target.value;
         updateAttitude();
+        updatePropagation();
     });
 
     // Camera view mode switch
@@ -503,6 +505,64 @@ document.addEventListener('DOMContentLoaded', () => {
         state.layerVisibility.calibrated = !state.layerVisibility.calibrated;
         btnLayerCalibrated.classList.toggle('active-calibrated', state.layerVisibility.calibrated);
         scene.setOrbitVisibility('calibrated', state.layerVisibility.calibrated);
+    });
+
+    // Drawer Slide-out Toggles
+    const drawerLeft = document.getElementById('drawer-left');
+    const drawerRight = document.getElementById('drawer-right');
+    const btnDrawerLeftToggle = document.getElementById('drawer-left-toggle');
+    const btnDrawerRightToggle = document.getElementById('drawer-right-toggle');
+    const drawerLeftHandleText = document.getElementById('drawer-left-handle-text');
+    const drawerRightHandleText = document.getElementById('drawer-right-handle-text');
+
+    if (btnDrawerLeftToggle && drawerLeft) {
+        btnDrawerLeftToggle.addEventListener('click', () => {
+            const isCollapsed = drawerLeft.classList.toggle('collapsed');
+            if (drawerLeftHandleText) {
+                drawerLeftHandleText.textContent = isCollapsed ? '▶ 遥测姿态' : '◀ 遥测姿态';
+            }
+            if (!isCollapsed && charts) {
+                requestAnimationFrame(() => charts.resizeCharts());
+            }
+        });
+    }
+
+    if (btnDrawerRightToggle && drawerRight) {
+        btnDrawerRightToggle.addEventListener('click', () => {
+            const isCollapsed = drawerRight.classList.toggle('collapsed');
+            if (drawerRightHandleText) {
+                drawerRightHandleText.textContent = isCollapsed ? '◀ 算法测控' : '算法测控 ▶';
+            }
+            if (!isCollapsed && charts) {
+                requestAnimationFrame(() => charts.resizeCharts());
+            }
+        });
+    }
+
+    // Subsystem Tab Switching inside Drawers
+    document.querySelectorAll('.drawer-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const drawerSide = btn.getAttribute('data-drawer');
+            const tabId = btn.getAttribute('data-tab');
+            const drawerEl = drawerSide === 'left' ? drawerLeft : drawerRight;
+            if (!drawerEl) return;
+
+            // Switch active tab button
+            drawerEl.querySelectorAll('.drawer-tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            // Switch active tab pane
+            drawerEl.querySelectorAll('.drawer-tab-pane').forEach(p => p.classList.remove('active'));
+            const pane = document.getElementById(tabId);
+            if (pane) {
+                pane.classList.add('active');
+            }
+
+            // Trigger chart resize if charts are revealed
+            if (charts) {
+                requestAnimationFrame(() => charts.resizeCharts());
+            }
+        });
     });
 
     // Synthetic Tuning Modal Open & Close

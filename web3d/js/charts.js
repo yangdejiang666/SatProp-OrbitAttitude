@@ -33,7 +33,8 @@ class DashboardCharts {
         };
 
         // 1. RIC Residual Error Chart
-        const ctxRic = document.getElementById('chart-ric-residuals')?.getContext('2d');
+        const ricEl = document.getElementById('chart-ric') || document.getElementById('chart-ric-residuals');
+        const ctxRic = ricEl?.getContext('2d');
         if (ctxRic) {
             this.ricChart = new Chart(ctxRic, {
                 type: 'line',
@@ -193,5 +194,15 @@ class DashboardCharts {
         this.attChart.data.datasets[1].data = pitch;
         this.attChart.data.datasets[2].data = yaw;
         this.attChart.update();
+    }
+
+    resizeCharts() {
+        try {
+            if (this.ricChart) this.ricChart.resize();
+            if (this.attChart) this.attChart.resize();
+            if (this.benchmarkChart) this.benchmarkChart.resize();
+        } catch (e) {
+            console.debug('Chart resize handled:', e);
+        }
     }
 }

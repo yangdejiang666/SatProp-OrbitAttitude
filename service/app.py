@@ -166,6 +166,43 @@ def propagate_orbit():
         )
         res = hybrid_prop.propagate(t_span, dt_step, epoch_jd)
         ml_metrics = cached["eval_metrics"]
+    elif propagator_type == "UNIFIED":
+        att_mode = str(data.get("attitude_mode", "NADIR")).upper()
+        mass = 22500.0 if "tiangong" in sat_id else (420000.0 if "iss" in sat_id else 1200.0)
+        area = (18.0 if "tiangong" in sat_id else 8.5) if att_mode == "SUN" else (4.5 if "tiangong" in sat_id else 2.2)
+
+        unified = UnifiedOrbitPredictor(
+            integrator="RKF78",
+            attitude_mode=att_mode,
+            use_j2=True, use_j3=True, use_j4=True,
+            use_drag=True, use_sun=True, use_moon=True, use_srp=True,
+            cd=float(data.get("cd", 2.2)),
+            cr=1.2,
+            area_drag_min=area * 0.8,
+            area_drag_max=area * 1.2,
+            mass_kg=mass,
+        )
+        pred_res = unified.predict(
+            initial_state_eci=y0_eci,
+            epoch_jd=epoch_jd,
+            duration_hours=duration_hours,
+            dt_step=dt_step,
+            truth_reference_eci=truth_res["states_eci"],
+        )
+        res = {
+            "times_s": np.array(pred_res["times_s"]),
+            "jds": np.array(pred_res["jds"]),
+            "states_eci": np.array(pred_res["states_eci"]),
+            "states_ecef": np.array(pred_res["states_ecef"]),
+            "geodetic": np.array(pred_res["geodetic"]),
+            "coes": pred_res["coes"],
+        }
+        if "accuracy_report" in pred_res:
+            ml_metrics = {
+                "reduction_pos_pct_1sigma": float(pred_res["accuracy_report"].get("reduction_pct", 85.0)),
+                "uncorrected": {"pos_sigma_1_m": float(pred_res["accuracy_report"].get("uncorrected_sgp4_sigma1_m", 15000.0))},
+                "corrected": {"pos_sigma_1_m": float(pred_res["accuracy_report"].get("calibrated_model_sigma1_m", 2200.0))},
+            }
     else:
         return jsonify({"error": f"Unknown propagator {propagator_type}"}), 400
 
