@@ -1979,6 +1979,22 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Open Research Station (Cesium 4D / NASA Verification Platform)
+    const btnOpenResearchTop = document.getElementById('btn-open-research-station');
+    const wbBtnOpenCesium = document.getElementById('wb-btn-open-cesium');
+
+    if (btnOpenResearchTop) {
+        btnOpenResearchTop.addEventListener('click', () => {
+            window.open('/research/', '_blank');
+        });
+    }
+
+    if (wbBtnOpenCesium) {
+        wbBtnOpenCesium.addEventListener('click', () => {
+            window.open('/research/', '_blank');
+        });
+    }
+
     // 8. Launch Application
     loadSatellites().then(async () => {
         scene.switchSatelliteModel(state.currentSatId);

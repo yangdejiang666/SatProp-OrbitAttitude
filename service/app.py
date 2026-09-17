@@ -8,7 +8,7 @@ import os
 import sys
 from typing import Dict, Any
 import numpy as np
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
 
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -226,6 +226,165 @@ def matlab_export_mat():
         as_attachment=True,
         download_name=filename
     )
+
+
+# =============================================================================
+# Research-Grade Workbench (NASA GMAT & Cesium 4D Verification Station)
+# =============================================================================
+CESIUM_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "research_workbench", "cesium_station"))
+
+
+@app.route("/research/")
+@app.route("/research/<path:filename>")
+def serve_research_workbench(filename="index.html"):
+    """Serves the research-grade 4D Cesium mission analysis station."""
+    return send_from_directory(CESIUM_DIR, filename)
+
+
+@app.route("/api/research/czml", methods=["GET", "POST"])
+def get_research_czml():
+    """Generates and serves dynamic AGI STK / Cesium CZML packets for the requested satellite."""
+    from research_workbench.czml_exporter import CZMLExporter
+    from research_workbench.verification_engine import get_verification_engine
+    from core.time_systems import jd_to_datetime
+
+    sat_id = request.args.get("sat_id") or "tiangong"
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": f"Satellite {sat_id} not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    prop = sat_entry["propagator"]
+    start_utc = jd_to_datetime(prop.epoch_jd)
+
+    duration_s = float(request.args.get("duration_s", 5500.0))
+    step_s = float(request.args.get("step_s", 60.0))
+
+    res_model = prop.propagate(t_span_seconds=duration_s, dt_step=step_s)
+    times_s = res_model["times_s"].tolist() if hasattr(res_model["times_s"], "tolist") else list(res_model["times_s"])
+    states_model = res_model["states_eci"].tolist() if hasattr(res_model["states_eci"], "tolist") else list(res_model["states_eci"])
+
+    engine = get_verification_engine()
+    audit = engine.verify_orbit_model(
+        line1=sat_entry["line1"],
+        line2=sat_entry["line2"],
+        sat_id=sat_id,
+        start_utc=start_utc,
+        times_s=times_s,
+        model_states_eci=states_model,
+        model_name="SatProp-Cowell"
+    )
+
+    czml = CZMLExporter.export_mission_czml(
+        sat_id=sat_id,
+        sat_name=sat_entry["name"],
+        start_time_iso=start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        times_s=times_s,
+        model_states_eci=states_model,
+        auth_states_eci=audit.get("authoritative_states_eci"),
+        period_s=5500.0
+    )
+    return jsonify(czml)
+
+
+@app.route("/api/research/verify", methods=["POST", "GET"])
+def run_research_verification():
+    """Runs scientific cross-audit comparing homegrown models against Skyfield/Astropy."""
+    from research_workbench.verification_engine import get_verification_engine
+    from core.time_systems import jd_to_datetime
+
+    payload = request.get_json(silent=True) or {}
+    if not payload and request.args:
+        payload = request.args.to_dict()
+
+    sat_id = payload.get("sat_id", "tiangong")
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": f"Satellite {sat_id} not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    prop = sat_entry["propagator"]
+    start_utc = jd_to_datetime(prop.epoch_jd)
+
+    duration_s = float(payload.get("duration_s", 5500.0))
+    step_s = float(payload.get("step_s", 60.0))
+
+    res_model = prop.propagate(t_span_seconds=duration_s, dt_step=step_s)
+    times_s = res_model["times_s"].tolist() if hasattr(res_model["times_s"], "tolist") else list(res_model["times_s"])
+    states_model = res_model["states_eci"].tolist() if hasattr(res_model["states_eci"], "tolist") else list(res_model["states_eci"])
+
+    engine = get_verification_engine()
+    audit = engine.verify_orbit_model(
+        line1=sat_entry["line1"],
+        line2=sat_entry["line2"],
+        sat_id=sat_id,
+        start_utc=start_utc,
+        times_s=times_s,
+        model_states_eci=states_model,
+        model_name="SatProp-Cowell/RKF78"
+    )
+    return jsonify(audit)
+
+
+@app.route("/api/research/export_gmat", methods=["GET"])
+def export_gmat_script():
+    """Generates and downloads NASA GMAT verification script (.script)."""
+    import io
+    from research_workbench.gmat_bridge import generate_gmat_script
+    from core.time_systems import jd_to_datetime
+    sat_id = request.args.get("sat_id", "tiangong")
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": "Satellite not found"}), 404
+    sat_entry = data_manager.satellites[sat_id]
+    prop = sat_entry["propagator"]
+    start_utc = jd_to_datetime(prop.epoch_jd)
+    script_str = generate_gmat_script(
+        sat_name=sat_id.upper(),
+        epoch_str=start_utc.strftime("%d %b %Y %H:%M:%S.000"),
+        state_eci=prop.get_initial_state_eci()
+    )
+    buf = io.BytesIO(script_str.encode("utf-8"))
+    return send_file(buf, mimetype="text/plain", as_attachment=True, download_name=f"nasa_gmat_{sat_id}_verification.script")
+
+
+@app.route("/api/research/download_czml", methods=["GET"])
+def download_mission_czml():
+    """Generates and downloads AGI STK / Cesium CZML file (.czml)."""
+    import io
+    from research_workbench.czml_exporter import generate_mission_czml
+    from research_workbench.verification_engine import get_verification_engine
+    from core.time_systems import jd_to_datetime
+
+    sat_id = request.args.get("sat_id", "tiangong")
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": "Satellite not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    prop = sat_entry["propagator"]
+    start_utc = jd_to_datetime(prop.epoch_jd)
+
+    res_model = prop.propagate(t_span_seconds=5500.0, dt_step=60.0)
+    times_s = res_model["times_s"].tolist() if hasattr(res_model["times_s"], "tolist") else list(res_model["times_s"])
+    states_model = res_model["states_eci"].tolist() if hasattr(res_model["states_eci"], "tolist") else list(res_model["states_eci"])
+
+    engine = get_verification_engine()
+    audit = engine.verify_orbit_model(
+        line1=sat_entry["line1"],
+        line2=sat_entry["line2"],
+        sat_id=sat_id,
+        start_utc=start_utc,
+        times_s=times_s,
+        model_states_eci=states_model,
+    )
+
+    czml_str = generate_mission_czml(
+        sat_id=sat_id,
+        sat_name=sat_entry["name"],
+        start_time_iso=start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        times_s=times_s,
+        model_states_eci=states_model,
+        auth_states_eci=audit.get("authoritative_states_eci"),
+    )
+    buf = io.BytesIO(czml_str.encode("utf-8"))
+    return send_file(buf, mimetype="application/json", as_attachment=True, download_name=f"{sat_id}_mission.czml")
 
 
 @app.route("/api/constellation/orbits", methods=["GET", "POST"])
