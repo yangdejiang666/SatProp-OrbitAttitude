@@ -245,6 +245,7 @@ def get_full_celestial_system(beijing_time_str: str = None) -> Dict[str, Any]:
         "status": "success",
         "beijing_time": dt_cst.strftime("%Y-%m-%d %H:%M:%S CST (UTC+8)"),
         "utc_time": dt_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "timestamp_ms": int(dt_utc.timestamp() * 1000),
         "julian_date": float(jd),
         "mjd": float(mjd),
         "gmst_deg": float(math.degrees(gmst) % 360.0),

@@ -121,12 +121,12 @@
             </button>
         </div>
 
-        <!-- Module 5: Master Mission Clock Card -->
+        <!-- Module 5: Master Mission Clock Card (Beijing Time CST / UTC) -->
         <div class="top-nav-card clock-card">
             <div class="clock-icon">⏱️</div>
             <div class="clock-content">
-                <span id="clock-utc-time" class="clock-utc">2026-09-16 13:00:00 UTC</span>
-                <span id="clock-mjd-val" class="clock-mjd">MJD: 61299.80000</span>
+                <span id="clock-utc-time" class="clock-utc">2026-09-17 09:30:00 CST</span>
+                <span id="clock-mjd-val" class="clock-mjd">UTC: 01:30:00 | MJD: 61300.0625</span>
             </div>
         </div>
     </header>
@@ -394,13 +394,13 @@
         <div class="dock-warp-group">
             <span class="dock-warp-label">动力学推演倍速:</span>
             <div class="warp-btn-cluster">
-                <button id="btn-warp-1x" class="warp-speed-btn" data-warp="1">1x 实时</button>
+                <button id="btn-warp-1x" class="warp-speed-btn active" data-warp="1">1x 实时</button>
                 <button id="btn-warp-10x" class="warp-speed-btn" data-warp="10">10x</button>
-                <button id="btn-warp-60x" class="warp-speed-btn active" data-warp="60">60x (1分/s)</button>
+                <button id="btn-warp-60x" class="warp-speed-btn" data-warp="60">60x (1分/s)</button>
                 <button id="btn-warp-300x" class="warp-speed-btn" data-warp="300">300x (5分/s)</button>
                 <button id="btn-warp-1200x" class="warp-speed-btn" data-warp="1200">1200x (20分/s)</button>
                 <button id="btn-warp-pause" class="warp-speed-btn" title="暂停/继续动力学积分 (快捷键: 空格)">⏸ 暂停</button>
-                <button id="btn-warp-now" class="warp-reset-btn" title="立即归位至当前真实世界时刻">⏱️ 归位实测时刻</button>
+                <button id="btn-warp-now" class="warp-reset-btn" title="立即归位至当前真实网络时刻">⏱️ 归位实测时刻</button>
             </div>
         </div>
 

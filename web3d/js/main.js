@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentPropagator: 'HYBRID_ML',
         attitudeMode: 'NADIR',
         isPlaying: true,
-        warpMultiplier: 60.0,
+        warpMultiplier: 1.0,
         simTimeSec: 0.0,
         showHud: true,
         layerVisibility: {
@@ -183,11 +183,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             if (data.status === 'success') {
                 scene.updateCelestialEphemeris(data);
-                if (clockUtc) {
-                    clockUtc.textContent = data.beijing_time;
-                }
-                if (clockMjd) {
-                    clockMjd.textContent = `${data.utc_time} | MJD: ${data.mjd.toFixed(4)}`;
+                // Sync real-time clock epoch with network backend timestamp if in 1x mode
+                if (state.warpMultiplier === 1.0 && data.timestamp_ms) {
+                    state.baseEpochDate = new Date(data.timestamp_ms);
+                    state.simTimeSec = 0.0;
                 }
             }
         } catch (e) {
@@ -481,14 +480,28 @@ document.addEventListener('DOMContentLoaded', () => {
             state.simTimeSec += dtWallSec * state.warpMultiplier;
         }
 
-        // 1. Advance Mission Clock (UTC & MJD)
+        // 1. Advance Mission Clock (Beijing Time CST & UTC & MJD)
         const currentSimMs = state.baseEpochDate.getTime() + state.simTimeSec * 1000;
         const curDate = new Date(currentSimMs);
-        const isoString = curDate.toISOString().replace('T', ' ').replace(/\..+/, '') + ' UTC';
-        if (clockUtc) clockUtc.textContent = isoString;
 
-        const curMjd = state.baseEpochMjd + (state.simTimeSec / 86400.0);
-        if (clockMjd) clockMjd.textContent = `MJD: ${curMjd.toFixed(5)}`;
+        // Compute real-time Beijing Time (CST, UTC+8)
+        const bjDate = new Date(curDate.getTime() + (curDate.getTimezoneOffset() * 60000) + (8 * 3600000));
+        const bjY = bjDate.getFullYear();
+        const bjM = String(bjDate.getMonth() + 1).padStart(2, '0');
+        const bjD = String(bjDate.getDate()).padStart(2, '0');
+        const bjH = String(bjDate.getHours()).padStart(2, '0');
+        const bjMin = String(bjDate.getMinutes()).padStart(2, '0');
+        const bjS = String(bjDate.getSeconds()).padStart(2, '0');
+        const beijingString = `${bjY}-${bjM}-${bjD} ${bjH}:${bjMin}:${bjS} CST`;
+
+        // Compute UTC Time & MJD
+        const utcH = String(curDate.getUTCHours()).padStart(2, '0');
+        const utcMin = String(curDate.getUTCMinutes()).padStart(2, '0');
+        const utcS = String(curDate.getUTCSeconds()).padStart(2, '0');
+        const curMjd = 40587.0 + (curDate.getTime() / 86400000.0);
+
+        if (clockUtc) clockUtc.textContent = beijingString;
+        if (clockMjd) clockMjd.textContent = `UTC: ${utcH}:${utcMin}:${utcS} | MJD: ${curMjd.toFixed(4)}`;
 
         if (dockStreamStatus) {
             if (state.warpMultiplier === 1.0) {
@@ -1158,7 +1171,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Reset to Real UTC Now
+    // Reset to Real-Time Network Beijing Time Now
     if (btnWarpNow) {
         btnWarpNow.addEventListener('click', () => {
             state.baseEpochDate = new Date();
@@ -1172,6 +1185,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnWarpPause.textContent = '⏸ 暂停';
                 btnWarpPause.classList.remove('active');
             }
+            updateCelestial();
         });
     }
 
