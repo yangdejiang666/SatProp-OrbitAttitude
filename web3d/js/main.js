@@ -1318,105 +1318,46 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.status === 'success') {
                 state.predictedTargetPoint = data.target_point;
 
-                // 1. Render both nominal orbit (Cyan) and perturbed offset orbit (Amber) with drift vector
+                // 1. Render nominal orbit (solid cyan) and perturbed offset orbit (dashed amber) with drift vector & 3D ghost satellite
                 scene.showOffsetOrbitPrediction(
                     data.nominal_orbit_arc_eci,
                     data.offset_orbit_arc_eci,
                     data.nominal_target,
                     data.target_point,
-                    data.drift_metrics
+                    data.drift_metrics,
+                    deltaHours
                 );
 
-                if (isInstantLock) {
-                    state.isPredictionLocked = true;
-                    // Jump mission simulation clock to the future predicted instant
-                    state.simTimeSec = deltaHours * 3600.0;
-                    const futureSimMs = state.baseEpochDate.getTime() + state.simTimeSec * 1000;
+                state.isPredictionActive = true;
+                state.isPredictionLocked = false; // Real satellite telemetry continues live!
+                state.lastPredictionData = data;
 
-                    // Immediately rotate Earth, Sun, Moon to that future exact astronomical moment
-                    scene.updateCelestialRealtime(futureSimMs, state.simTimeSec);
+                // Update bottom dock spatial drift badge
+                const dockDriftTag = document.getElementById('dock-drift-tag');
+                if (dockDriftTag && data.drift_metrics) {
+                    const dm = data.drift_metrics;
+                    dockDriftTag.style.display = 'inline-flex';
+                    dockDriftTag.innerHTML = `🎯 预测虚影 (+${deltaHours}h): 摄动偏距 <b>${dm.total_drift_km.toFixed(2)} km</b> (沿轨: ${(dm.dr_in_track_m / 1000.0).toFixed(2)} km, 径向: ${dm.dr_radial_m.toFixed(1)} m)`;
+                }
 
-                    // Update bottom dock spatial drift badge
-                    const dockDriftTag = document.getElementById('dock-drift-tag');
-                    if (dockDriftTag && data.drift_metrics) {
-                        const dm = data.drift_metrics;
-                        dockDriftTag.style.display = 'inline-flex';
-                        dockDriftTag.innerHTML = `🎯 偏移轨道定点: 偏距 <b>${dm.total_drift_km.toFixed(2)} km</b> (沿轨: ${(dm.dr_in_track_m / 1000.0).toFixed(2)} km, 径向: ${dm.dr_radial_m.toFixed(1)} m)`;
-                    }
+                if (data.target_point && data.target_point.target_gmst_deg !== undefined) {
+                    state.predictedGmstRad = (data.target_point.target_gmst_deg * Math.PI) / 180.0;
+                    scene.setFutureEpochAlignment(true, state.predictedGmstRad);
+                }
 
-                    // Directly place satellite 3D model on the offset orbit with future attitude
-                    scene.setSatelliteState(data.target_point.state_eci, data.target_point.attitude.quaternion);
+                // Show prediction management action buttons
+                const btnPredClear = document.getElementById('btn-pred-clear');
+                if (btnPredClear) btnPredClear.style.display = 'inline-block';
+                const btnPredSyncEarth = document.getElementById('btn-pred-sync-earth');
+                if (btnPredSyncEarth) {
+                    btnPredSyncEarth.style.display = 'inline-block';
+                    btnPredSyncEarth.classList.add('active');
+                    btnPredSyncEarth.textContent = '🕒 已对齐未来地表时相';
+                }
 
-                    // Immediately project nadir laser and footprint on rotating Earth to predicted location
-                    const predLat = (data.target_point.geodetic && data.target_point.geodetic.length > 0) ? data.target_point.geodetic[0] : 0;
-                    const predLon = (data.target_point.geodetic && data.target_point.geodetic.length > 1) ? data.target_point.geodetic[1] : 0;
-                    scene.updateNadirProjector(data.target_point.state_eci, predLat, predLon);
-
-                    // Update ground track on Earth for predicted offset orbit
-                    if (data.offset_orbit_arc_eci && data.offset_orbit_arc_eci.length > 1) {
-                        const predPeriodS = (data.target_point.coe && data.target_point.coe.period_s) ? data.target_point.coe.period_s : 5500.0;
-                        scene.updateGroundTrack(data.offset_orbit_arc_eci, state.simTimeSec, state.baseEpochDate.getTime(), predPeriodS);
-                    }
-
-                    // Smoothly track satellite in camera if active
-                    if (scene.controls && (state.cameraMode === 'FOLLOW' || state.cameraMode === 'CLOSEUP')) {
-                        const tgt = new THREE.Vector3(
-                            data.target_point.state_eci[0] * scene.scaleRatio,
-                            data.target_point.state_eci[2] * scene.scaleRatio,
-                            -data.target_point.state_eci[1] * scene.scaleRatio
-                        );
-                        scene.controls.target.copy(tgt);
-                    }
-
-                    // Update left panel telemetry values with predicted mathematical results
-                    const tp = data.target_point;
-                    if (elAlt) elAlt.textContent = tp.alt_km.toFixed(1);
-                    if (elVel) elVel.textContent = tp.vel_kms.toFixed(3);
-                    if (elLat) elLat.textContent = tp.lat_str;
-                    if (elLon) elLon.textContent = tp.lon_str;
-
-                    // Keplerian COE
-                    if (tp.coe) {
-                        if (elInc) elInc.textContent = tp.coe.i_deg.toFixed(2);
-                        if (elEcc) elEcc.textContent = tp.coe.e.toFixed(5);
-                        if (elSma) elSma.textContent = (tp.coe.a / 1000.0).toFixed(1);
-                        if (elPeriod) elPeriod.textContent = (tp.coe.period_s / 60.0).toFixed(1);
-                    }
-
-                    // Attitude
-                    if (elRoll) elRoll.textContent = `${tp.attitude.euler_display_deg[0] >= 0 ? '+' : ''}${tp.attitude.euler_display_deg[0].toFixed(2)}°`;
-                    if (elPitch) elPitch.textContent = `${tp.attitude.euler_display_deg[1] >= 0 ? '+' : ''}${tp.attitude.euler_display_deg[1].toFixed(2)}°`;
-                    if (elYaw) elYaw.textContent = `${tp.attitude.euler_display_deg[2] >= 0 ? '+' : ''}${tp.attitude.euler_display_deg[2].toFixed(2)}°`;
-
-                    if (elOmegaX) elOmegaX.textContent = `${tp.attitude.omega_deg_s[0] >= 0 ? '+' : ''}${tp.attitude.omega_deg_s[0].toFixed(3)}°/s`;
-                    if (elOmegaY) elOmegaY.textContent = `${tp.attitude.omega_deg_s[1] >= 0 ? '+' : ''}${tp.attitude.omega_deg_s[1].toFixed(3)}°/s`;
-                    if (elOmegaZ) elOmegaZ.textContent = `${tp.attitude.omega_deg_s[2] >= 0 ? '+' : ''}${tp.attitude.omega_deg_s[2].toFixed(3)}°/s`;
-                    if (elPointingStatus) elPointingStatus.textContent = tp.attitude.status;
-
-                    // Housekeeping TM
-                    if (tmSolarPower) tmSolarPower.textContent = `${tp.telemetry.solar_power_w} W (${tp.telemetry.is_eclipse ? '地影区' : '光照充能'})`;
-                    if (tmBusVoltage) tmBusVoltage.textContent = `${tp.telemetry.bus_voltage_v} V (稳压)`;
-                    if (tmWheelRpm) tmWheelRpm.textContent = `${tp.telemetry.wheel_rpm} RPM (推演)`;
-                    if (tmThermal) tmThermal.textContent = `+${tp.telemetry.thermal_c}°C 预测`;
-
-                    // Ground station contact
-                    if (tp.ground_station && tp.ground_station.active_station) {
-                        const st = tp.ground_station.active_station;
-                        if (bannerContact) bannerContact.style.display = 'flex';
-                        if (bannerStationName) bannerStationName.textContent = `${st.name} (预测捕获)`;
-                        if (bannerEl) bannerEl.textContent = `${st.elevation_deg.toFixed(1)}°`;
-                        if (bannerRange) bannerRange.textContent = `${st.range_km.toFixed(0)} km`;
-                        scene.setTrackingBeam(true, st.name);
-                    } else {
-                        if (bannerContact) bannerContact.style.display = 'none';
-                        scene.setTrackingBeam(false);
-                    }
-
-                    // Clocks
-                    if (dockSimTimeVal) dockSimTimeVal.textContent = `${tp.beijing_time} (推演定点)`;
-                    if (clockUtc) clockUtc.textContent = tp.beijing_time;
-                    if (clockMjd) clockMjd.textContent = `UTC: ${tp.utc_time} | MJD: ${tp.target_mjd.toFixed(4)}`;
-                    if (dockStreamStatus) dockStreamStatus.textContent = `🎯 瞬时定点预测呈现 (+${deltaHours}h 摄动外推数学结果)`;
+                // Status bar update
+                if (dockStreamStatus) {
+                    dockStreamStatus.textContent = `🎯 3D虚影已生成 (+${deltaHours}h 虚线预测轨 vs 实线实时轨)`;
                 }
             }
         } catch (e) {
@@ -1426,7 +1367,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Prediction Buttons: 1h, 5h, 10h, 1d, 3d (Instantly calculates future state and jumps satellite)
+    // Prediction Buttons: 1h, 5h, 10h, 1d, 3d (Instantly calculates future state and renders ghost satellite)
     const predictBtns = document.querySelectorAll('.predict-btn[data-hours]');
     predictBtns.forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -1438,12 +1379,61 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // "一点" Button: Directly predict and display satellite position & attitude at current forecast horizon
+    // "🎯 预测未来" Button: Directly predict and display satellite position & attitude at current forecast horizon
     if (btnPredPoint) {
         btnPredPoint.addEventListener('click', async () => {
             btnPredPoint.classList.add('active');
-            const hours = state.predictionHours || 1.0;
+            const hours = state.predictionHours || 24.0;
             await executePrediction(hours, true);
+        });
+    }
+
+    // "❌ 清除虚影" Button: Hide ghost satellite and reset to clean real-time view
+    const btnPredClear = document.getElementById('btn-pred-clear');
+    if (btnPredClear) {
+        btnPredClear.addEventListener('click', () => {
+            state.isPredictionActive = false;
+            state.isPredictionLocked = false;
+            scene.hidePredictionOrbit();
+            scene.setFutureEpochAlignment(false);
+
+            predictBtns.forEach(b => b.classList.remove('active'));
+            if (btnPredPoint) btnPredPoint.classList.remove('active');
+            btnPredClear.style.display = 'none';
+
+            const btnPredSyncEarth = document.getElementById('btn-pred-sync-earth');
+            if (btnPredSyncEarth) {
+                btnPredSyncEarth.style.display = 'none';
+                btnPredSyncEarth.classList.remove('active');
+            }
+
+            const dockDriftTag = document.getElementById('dock-drift-tag');
+            if (dockDriftTag) dockDriftTag.style.display = 'none';
+
+            if (dockStreamStatus) dockStreamStatus.textContent = '真实遥测流实时同步 (1:1 LIVE)';
+        });
+    }
+
+    // "🕒 对齐未来地表" Button: Toggle Earth rotation to align with future predicted GMST
+    const btnPredSyncEarth = document.getElementById('btn-pred-sync-earth');
+    if (btnPredSyncEarth) {
+        btnPredSyncEarth.addEventListener('click', () => {
+            const nextAligned = !scene.isFutureEpochAligned;
+            scene.setFutureEpochAlignment(nextAligned, state.predictedGmstRad);
+            btnPredSyncEarth.classList.toggle('active', nextAligned);
+            btnPredSyncEarth.textContent = nextAligned ? '🕒 已对齐未来地表时相' : '🕒 对齐未来地表';
+        });
+    }
+
+    // "🌍 地球自转" Button: Toggle interactive preview Earth auto-spin
+    const btnToggleEarthSpin = document.getElementById('btn-toggle-earth-spin');
+    if (btnToggleEarthSpin) {
+        btnToggleEarthSpin.classList.add('active');
+        btnToggleEarthSpin.textContent = '🌍 地球自转: 开启中';
+        btnToggleEarthSpin.addEventListener('click', () => {
+            const isSpinning = scene.toggleEarthAutoSpin();
+            btnToggleEarthSpin.classList.toggle('active', isSpinning);
+            btnToggleEarthSpin.textContent = isSpinning ? '🌍 地球自转: 开启中' : '🌍 地球自转';
         });
     }
 
