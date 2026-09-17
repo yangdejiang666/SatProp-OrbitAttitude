@@ -26,6 +26,12 @@ class SpaceScene {
         this.activeStation = null;
         this.celestialData = null;
 
+        // Earth self-rotation preview & future epoch alignment controls
+        this.earthAutoSpin = true; // Auto-spin enabled by default for dynamic frontend preview
+        this.earthSpinSpeed = 0.0012; // smooth visual preview spin rate (rad/frame)
+        this.isFutureEpochAligned = false;
+        this.predictedGmstRad = null;
+
         this.initThree();
         this.createDeepSpaceSkybox();
         this.createEarth();
@@ -35,6 +41,7 @@ class SpaceScene {
         this.createPlanets();
         this.createCelestialRings();
         this.createNadirProjector();
+        this.createGhostNadirProjector();
         this.initGroundTrack();
         this.createSatelliteModel(this.currentSatId);
         this.initConstellation();
@@ -453,11 +460,16 @@ class SpaceScene {
         if (gmstDeg < 0) gmstDeg += 360.0;
         const gmstRad = THREE.MathUtils.degToRad(gmstDeg);
 
-        if (this.earthMesh) {
-            this.earthMesh.rotation.y = gmstRad;
-        }
-        if (this.cloudsMesh) {
-            this.cloudsMesh.rotation.y = gmstRad + (simTimeSec * 0.00002) + 0.04;
+        // Apply Earth rotation according to current mode (Auto-spin preview vs Future epoch alignment vs IAU-82 GMST)
+        if (!this.earthAutoSpin) {
+            const appliedGmst = (this.isFutureEpochAligned && this.predictedGmstRad !== null) ? this.predictedGmstRad : gmstRad;
+            if (this.earthMesh) {
+                this.earthMesh.rotation.y = appliedGmst;
+                this.currentGmstRad = appliedGmst;
+            }
+            if (this.cloudsMesh) {
+                this.cloudsMesh.rotation.y = appliedGmst + (simTimeSec * 0.00002) + 0.04;
+            }
         }
 
         // 2. Real Solar Ephemeris (Meeus Astronomical Algorithms)
@@ -704,20 +716,114 @@ class SpaceScene {
     }
 
     // =========================================================================
+    // Ghost Satellite Ground Projection & Laser Beam
+    // =========================================================================
+    createGhostNadirProjector() {
+        this.ghostFootprint = new THREE.Group();
+
+        // Glowing outer footprint ring (Amber)
+        const ringGeo = new THREE.RingGeometry(0.38, 0.46, 32);
+        const ringMat = new THREE.MeshBasicMaterial({
+            color: 0xf59e0b,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.88,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        this.ghostFootprint.add(ring);
+
+        // Inner reticle (Cyan)
+        const innerGeo = new THREE.RingGeometry(0.18, 0.22, 24);
+        const innerMat = new THREE.MeshBasicMaterial({
+            color: 0x38bdf8,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.92,
+            depthWrite: false
+        });
+        this.ghostFootprint.add(new THREE.Mesh(innerGeo, innerMat));
+
+        // Center pulsating beacon
+        const spotGeo = new THREE.SphereGeometry(0.08, 16, 16);
+        const spotMat = new THREE.MeshStandardMaterial({
+            color: 0xf59e0b,
+            emissive: 0xfbbf24,
+            emissiveIntensity: 1.0,
+            roughness: 0.1
+        });
+        const spot = new THREE.Mesh(spotGeo, spotMat);
+        spot.position.z = 0.02;
+        this.ghostFootprint.add(spot);
+
+        this.ghostFootprint.visible = false;
+        this.earthMesh.add(this.ghostFootprint);
+
+        // Ghost Nadir Projection Laser Beam (Dashed amber/cyan connecting ghost satellite to footprint)
+        const beamMat = new THREE.LineDashedMaterial({
+            color: 0xf59e0b,
+            dashSize: 0.35,
+            gapSize: 0.18,
+            transparent: true,
+            opacity: 0.88,
+            depthWrite: false
+        });
+        const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        this.ghostNadirBeam = new THREE.Line(beamGeo, beamMat);
+        this.ghostNadirBeam.visible = false;
+        this.scene.add(this.ghostNadirBeam);
+    }
+
+    updateGhostNadirProjector(r_eci, latDeg, lonDeg) {
+        if (!this.ghostGroup || !this.earthMesh || latDeg === undefined || lonDeg === undefined) return;
+
+        const phi = THREE.MathUtils.degToRad(90.0 - latDeg);
+        const theta = THREE.MathUtils.degToRad(lonDeg + 180.0);
+
+        const R = this.earthRadius * 1.0035;
+        const lx = -(R * Math.sin(phi) * Math.cos(theta));
+        const ly = R * Math.cos(phi);
+        const lz = R * Math.sin(phi) * Math.sin(theta);
+
+        this.ghostFootprint.position.set(lx, ly, lz);
+        const normal = new THREE.Vector3(lx, ly, lz).normalize();
+        this.ghostFootprint.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+        this.ghostFootprint.visible = this.ghostGroup.visible;
+
+        if (this.ghostNadirBeam && this.ghostGroup.visible) {
+            const fpWorld = new THREE.Vector3();
+            this.ghostFootprint.getWorldPosition(fpWorld);
+            const ghostPos = this.ghostGroup.position;
+
+            const posArr = new Float32Array([
+                ghostPos.x, ghostPos.y, ghostPos.z,
+                fpWorld.x, fpWorld.y, fpWorld.z
+            ]);
+            this.ghostNadirBeam.geometry.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+            this.ghostNadirBeam.computeLineDistances();
+            this.ghostNadirBeam.visible = true;
+        }
+    }
+
+    // =========================================================================
     // Dynamic Sub-Satellite Ground Track Curve on Rotating Earth Sphere
+    // (Strictly surface-conforming with spherical geodesic interpolation)
     // =========================================================================
     initGroundTrack() {
         // groundTrackGroup is a child of earthMesh so it co-rotates with Earth
         this.groundTrackGroup = new THREE.Group();
         this.earthMesh.add(this.groundTrackGroup);
 
-        // Material prototypes (reused across dynamic segments)
+        // Material prototypes: depthWrite disabled to guarantee no clipping/z-fighting
         this._pastTrackMat = new THREE.LineBasicMaterial({
-            color: 0x06b6d4, transparent: true, opacity: 0.85, linewidth: 2
+            color: 0x06b6d4, transparent: true, opacity: 0.90, linewidth: 2,
+            depthWrite: false
         });
         this._futureTrackMat = new THREE.LineDashedMaterial({
-            color: 0xf59e0b, dashSize: 0.30, gapSize: 0.15,
-            transparent: true, opacity: 0.90
+            color: 0xf59e0b, dashSize: 0.28, gapSize: 0.14,
+            transparent: true, opacity: 0.92,
+            depthWrite: false
         });
 
         // Dynamic segment pools — rebuilt each updateGroundTrack call
@@ -726,24 +832,50 @@ class SpaceScene {
     }
 
     // -------------------------------------------------------------------------
-    // Helper: split a list of sphere-surface points at antimeridian crossings.
-    // Returns an array of sub-arrays (segments), each containing continuous pts.
+    // Helper: subdivide line segments along the spherical surface (geodesic arc)
+    // Guarantees every single vertex has radius R, so NO chord dips inside Earth.
+    // Breaks segments across antimeridian or numerical discontinuities (>45 deg).
     // -------------------------------------------------------------------------
-    _splitAtAntimeridian(points, lons) {
+    _splitAndInterpolateSegments(rawPoints, R) {
         const segments = [];
-        if (points.length === 0) return segments;
-        let current = [points[0]];
-        for (let i = 1; i < points.length; i++) {
-            const dLon = Math.abs(lons[i] - lons[i - 1]);
-            if (dLon > 150.0) {
-                // Antimeridian crossing detected — break segment here
-                if (current.length >= 2) segments.push(current);
-                current = [points[i]];
-            } else {
-                current.push(points[i]);
+        if (rawPoints.length === 0) return segments;
+
+        let currentSegment = [rawPoints[0]];
+
+        for (let i = 1; i < rawPoints.length; i++) {
+            const p0 = rawPoints[i - 1];
+            const p1 = rawPoints[i];
+
+            // Angular separation on sphere of radius R
+            const dot = Math.max(-1.0, Math.min(1.0, (p0.x * p1.x + p0.y * p1.y + p0.z * p1.z) / (R * R)));
+            const angleRad = Math.acos(dot);
+            const angleDeg = THREE.MathUtils.radToDeg(angleRad);
+
+            // Discontinuity / antimeridian wrap: break into new segment
+            if (angleDeg > 45.0) {
+                if (currentSegment.length >= 2) segments.push(currentSegment);
+                currentSegment = [p1];
+                continue;
+            }
+
+            // Subdivide along sphere surface so every chord vertex strictly hugs the sphere surface
+            const subSteps = Math.max(1, Math.ceil(angleDeg / 0.8));
+            for (let s = 1; s <= subSteps; s++) {
+                const alpha = s / subSteps;
+                const vx = (1 - alpha) * p0.x + alpha * p1.x;
+                const vy = (1 - alpha) * p0.y + alpha * p1.y;
+                const vz = (1 - alpha) * p0.z + alpha * p1.z;
+                const len = Math.hypot(vx, vy, vz);
+                if (len > 1e-6) {
+                    currentSegment.push(new THREE.Vector3(
+                        vx * (R / len),
+                        vy * (R / len),
+                        vz * (R / len)
+                    ));
+                }
             }
         }
-        if (current.length >= 2) segments.push(current);
+        if (currentSegment.length >= 2) segments.push(currentSegment);
         return segments;
     }
 
@@ -760,6 +892,7 @@ class SpaceScene {
             const geo = new THREE.BufferGeometry().setFromPoints(pts);
             const line = new THREE.Line(geo, mat);
             if (isDashed) line.computeLineDistances();
+            line.renderOrder = 6;
             line.visible = visible;
             group.add(line);
             pool.push(line);
@@ -770,16 +903,14 @@ class SpaceScene {
         if (!trajectoryStatesEci || trajectoryStatesEci.length < 2 || !baseEpochMs) return;
 
         const N = trajectoryStatesEci.length;
-        // Raise slightly above Earth surface to avoid Z-fighting
-        const R = this.earthRadius * 1.004;
+        // Surface radius strictly above Earth sphere (10.0) to eliminate any chord penetration
+        const R = this.earthRadius * 1.006;
         const states = trajectoryStatesEci;
 
         const pastPoints = [];
         const futurPoints = [];
-        const pastLons   = [];
-        const futurLons  = [];
 
-        // Sample past 0.6 orbit + future 1.3 orbits with finer resolution
+        // Sample past 0.6 orbit + future 1.3 orbits with fine resolution
         const pastSamples   = 72;
         const futureSamples = 144;
 
@@ -814,33 +945,29 @@ class SpaceScene {
             const latDeg = Math.atan2(z_ecef, pLen)  * (180.0 / Math.PI);
 
             // Sphere surface point in earthMesh local frame
-            // (earthMesh rotates by GMST, so ECEF coords become correct
-            //  world positions after the parent transform)
             const phi   = THREE.MathUtils.degToRad(90.0 - latDeg);
             const theta = THREE.MathUtils.degToRad(lonDeg + 180.0);
             const gx    = -(R * Math.sin(phi) * Math.cos(theta));
             const gy    =   R * Math.cos(phi);
             const gz    =   R * Math.sin(phi) * Math.sin(theta);
-            return { pt: new THREE.Vector3(gx, gy, gz), lon: lonDeg };
+            return new THREE.Vector3(gx, gy, gz);
         };
 
         // Build past track
         for (let i = pastSamples; i >= 0; i--) {
             const dtRel = -(i / pastSamples) * periodS * 0.6;
-            const { pt, lon } = computePoint(simTimeSec + dtRel);
-            pastPoints.push(pt); pastLons.push(lon);
+            pastPoints.push(computePoint(simTimeSec + dtRel));
         }
 
         // Build future track
         for (let i = 0; i <= futureSamples; i++) {
             const dtRel = (i / futureSamples) * periodS * 1.3;
-            const { pt, lon } = computePoint(simTimeSec + dtRel);
-            futurPoints.push(pt); futurLons.push(lon);
+            futurPoints.push(computePoint(simTimeSec + dtRel));
         }
 
-        // Split at antimeridian and rebuild segment pools
-        const pastSegs  = this._splitAtAntimeridian(pastPoints,  pastLons);
-        const futureSegs = this._splitAtAntimeridian(futurPoints, futurLons);
+        // Subdivide & interpolate along sphere surface (guarantees strictly surface-clamped track)
+        const pastSegs   = this._splitAndInterpolateSegments(pastPoints, R);
+        const futureSegs = this._splitAndInterpolateSegments(futurPoints, R);
 
         this._rebuildSegmentPool(
             this._pastSegments,   pastSegs,   this._pastTrackMat,
@@ -950,9 +1077,12 @@ class SpaceScene {
         // 2. Rotate Earth to Match Current Greenwich Mean Sidereal Time (GMST)
         if (data.gmst_deg !== undefined && this.earthMesh) {
             const gmstRad = THREE.MathUtils.degToRad(data.gmst_deg);
-            this.earthMesh.rotation.y = gmstRad;
-            if (this.cloudsMesh) {
-                this.cloudsMesh.rotation.y = gmstRad + 0.05;
+            this.currentRealGmstRad = gmstRad;
+            if (!this.earthAutoSpin && !this.isFutureEpochAligned) {
+                this.earthMesh.rotation.y = gmstRad;
+                if (this.cloudsMesh) {
+                    this.cloudsMesh.rotation.y = gmstRad + 0.05;
+                }
             }
         }
 
@@ -1024,6 +1154,7 @@ class SpaceScene {
     switchSatelliteModel(satId) {
         this.currentSatId = satId;
         this.createSatelliteModel(satId);
+        this.rebuildGhostSatelliteModel(satId);
         if (this.constellationSatellites) {
             Object.keys(this.constellationSatellites).forEach(id => {
                 if (this.constellationSatellites[id] && this.constellationSatellites[id].group) {
@@ -1525,14 +1656,18 @@ class SpaceScene {
         this.orbitLines.drifted = this.createOrbitLineMesh(0xef4444, 1.5, true);
         this.orbitLines.maneuver = this.createOrbitLineMesh(0xf59e0b, 3.0, false);
         this.orbitLines.calibrated = this.createOrbitLineMesh(0x06b6d4, 2.6, false);
-        this.orbitLines.prediction = this.createOrbitLineMesh(0xfbbf24, 3.0, false);
+        this.orbitLines.prediction = this.createOrbitLineMesh(0xfbbf24, 3.0, true);
 
-        // Future Orbit Prediction: Nominal Reference Orbit (Cyan Dashed) & Perturbed Offset Orbit (Amber Glow)
-        this.orbitLines.nominal = this.createOrbitLineMesh(0x38bdf8, 2.0, true);
-        this.orbitLines.offset = this.createOrbitLineMesh(0xf59e0b, 3.2, false);
+        // Future Orbit Prediction:
+        // Nominal Reference Orbit = SOLID (实线, 当前实际基准轨道)
+        // Perturbed Offset Orbit = DASHED (虚线, 未来预测偏移轨道)
+        this.orbitLines.nominal = this.createOrbitLineMesh(0x06b6d4, 2.2, false);
+        this.orbitLines.offset = this.createOrbitLineMesh(0xf59e0b, 3.0, true);
 
-        // Spatial Offset Drift Line (Red/Orange Line connecting nominal and offset target points)
-        const driftMat = new THREE.LineDashedMaterial({ color: 0xef4444, dashSize: 0.25, gapSize: 0.15, transparent: true, opacity: 0.95 });
+        // Spatial Offset Drift Line (Red/Orange DASHED line connecting nominal and predicted target points)
+        const driftMat = new THREE.LineDashedMaterial({
+            color: 0xef4444, dashSize: 0.35, gapSize: 0.18, transparent: true, opacity: 0.95
+        });
         const driftGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
         this.offsetDriftLine = new THREE.Line(driftGeo, driftMat);
         this.offsetDriftLine.visible = false;
@@ -1541,7 +1676,7 @@ class SpaceScene {
 
     createOrbitLineMesh(colorHex, linewidth, isDashed = false) {
         const material = isDashed
-            ? new THREE.LineDashedMaterial({ color: colorHex, dashSize: 0.5, gapSize: 0.25, transparent: true, opacity: 0.8 })
+            ? new THREE.LineDashedMaterial({ color: colorHex, dashSize: 0.55, gapSize: 0.25, transparent: true, opacity: 0.90 })
             : new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity: 0.88 });
 
         const geometry = new THREE.BufferGeometry();
@@ -1579,23 +1714,25 @@ class SpaceScene {
 
     showPredictionOrbit(eciPoints) {
         if (!this.orbitLines.prediction) {
-            this.orbitLines.prediction = this.createOrbitLineMesh(0xfbbf24, 3.0, false);
+            this.orbitLines.prediction = this.createOrbitLineMesh(0xfbbf24, 3.0, true);
         }
         this.updateOrbitGeometry('prediction', eciPoints);
         this.setOrbitVisibility('prediction', true);
     }
 
-    showOffsetOrbitPrediction(nominalArc, offsetArc, nominalTarget, offsetTarget, driftMetrics) {
+    showOffsetOrbitPrediction(nominalArc, offsetArc, nominalTarget, offsetTarget, driftMetrics, deltaHours = null) {
+        // Actual/Nominal Orbit: Rendered as SOLID cyan line (实线)
         if (nominalArc && nominalArc.length > 0) {
             this.updateOrbitGeometry('nominal', nominalArc);
             this.setOrbitVisibility('nominal', true);
         }
+        // Future Predicted Orbit: Rendered as DASHED amber line (虚线)
         if (offsetArc && offsetArc.length > 0) {
             this.updateOrbitGeometry('offset', offsetArc);
             this.setOrbitVisibility('offset', true);
         }
 
-        // Draw dashed drift line between nominal and offset target positions
+        // Draw DASHED drift line between nominal and offset target positions
         if (nominalTarget && offsetTarget && nominalTarget.state_eci && offsetTarget.state_eci && this.offsetDriftLine) {
             const nomX = nominalTarget.state_eci[0] * this.scaleRatio;
             const nomY = nominalTarget.state_eci[2] * this.scaleRatio;
@@ -1616,10 +1753,10 @@ class SpaceScene {
             this.setPredictionTargetPoint(offsetTarget.state_eci);
         }
 
-        // Show ghost satellite at predicted position WITHOUT moving the real satellite
+        // Show 3D Ghost Satellite Projection Component at predicted position WITHOUT moving real satellite
         if (offsetTarget && offsetTarget.state_eci) {
             const quat = offsetTarget.attitude ? offsetTarget.attitude.quaternion : null;
-            this.showGhostSatellite(offsetTarget.state_eci, quat);
+            this.showGhostSatellite(offsetTarget.state_eci, quat, driftMetrics, deltaHours, offsetTarget.geodetic);
         }
     }
 
@@ -1633,47 +1770,201 @@ class SpaceScene {
     }
 
     // =========================================================================
-    // Ghost Satellite — semi-transparent predicted-position duplicate
+    // 3D Ghost Satellite Projection Component (3D 卫星虚影投影组件)
+    // - High-fidelity holographic body structure mirroring the active satellite
+    // - Rotating cyber-hologram gimbal reticle rings (Inner Cyan + Outer Amber)
+    // - Dynamic 3D Billboard floating HUD tag with predicted horizon & drift metrics
+    // - Dedicated ghost nadir ground footprint and projection laser beam
     // =========================================================================
     initGhostSatellite() {
-        // A simple octahedron stands in for the real model; replaced by a
-        // low-poly translucent hull so it is always visible regardless of which
-        // satellite model is loaded.
-        const geo = new THREE.OctahedronGeometry(0.55, 1);
-        const mat = new THREE.MeshStandardMaterial({
+        this.ghostGroup = new THREE.Group();
+        this.ghostGroup.visible = false;
+        this.scene.add(this.ghostGroup);
+
+        // Subgroup for the holographic satellite model body
+        this.ghostSatBodyGroup = new THREE.Group();
+        this.ghostGroup.add(this.ghostSatBodyGroup);
+
+        // 1. Holographic double concentric gimbal reticle rings
+        // Inner Ring (Cyan)
+        const innerRingGeo = new THREE.RingGeometry(0.55, 0.62, 36);
+        const innerRingMat = new THREE.MeshBasicMaterial({
+            color: 0x00f0ff,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.75,
+            wireframe: true,
+            depthWrite: false
+        });
+        this.ghostRingInner = new THREE.Mesh(innerRingGeo, innerRingMat);
+        this.ghostGroup.add(this.ghostRingInner);
+
+        // Outer Ring (Amber)
+        const outerRingGeo = new THREE.RingGeometry(0.78, 0.84, 36);
+        const outerRingMat = new THREE.MeshBasicMaterial({
+            color: 0xf59e0b,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.65,
+            wireframe: true,
+            depthWrite: false
+        });
+        this.ghostRingOuter = new THREE.Mesh(outerRingGeo, outerRingMat);
+        this.ghostRingOuter.rotation.x = Math.PI / 3;
+        this.ghostGroup.add(this.ghostRingOuter);
+
+        // 2. Holographic corner reticle brackets
+        const reticleMat = new THREE.LineBasicMaterial({
+            color: 0x38bdf8, transparent: true, opacity: 0.85, depthWrite: false
+        });
+        const bracketGeo = new THREE.BufferGeometry();
+        const d = 0.65, s = 0.20;
+        const bracketPts = new Float32Array([
+            // Top-left
+            -d, d, 0, -d+s, d, 0,
+            -d, d, 0, -d, d-s, 0,
+            // Top-right
+            d, d, 0, d-s, d, 0,
+            d, d, 0, d, d-s, 0,
+            // Bottom-left
+            -d, -d, 0, -d+s, -d, 0,
+            -d, -d, 0, -d, -d+s, 0,
+            // Bottom-right
+            d, -d, 0, d-s, -d, 0,
+            d, -d, 0, d, -d+s, 0
+        ]);
+        bracketGeo.setAttribute('position', new THREE.BufferAttribute(bracketPts, 3));
+        this.ghostBracketMesh = new THREE.LineSegments(bracketGeo, reticleMat);
+        this.ghostGroup.add(this.ghostBracketMesh);
+
+        // 3. Floating 3D HUD Billboard Sprite Badge
+        this.ghostBadgeCanvas = document.createElement('canvas');
+        this.ghostBadgeCanvas.width = 512;
+        this.ghostBadgeCanvas.height = 140;
+        this.ghostBadgeTex = new THREE.CanvasTexture(this.ghostBadgeCanvas);
+        const badgeMat = new THREE.SpriteMaterial({
+            map: this.ghostBadgeTex,
+            transparent: true,
+            opacity: 0.95,
+            depthWrite: false
+        });
+        this.ghostBadgeSprite = new THREE.Sprite(badgeMat);
+        this.ghostBadgeSprite.position.set(0, 1.25, 0);
+        this.ghostBadgeSprite.scale.set(3.4, 0.93, 1.0);
+        this.ghostGroup.add(this.ghostBadgeSprite);
+
+        // Build holographic model body
+        this.rebuildGhostSatelliteModel(this.currentSatId);
+    }
+
+    _updateGhostBadge(title, driftText) {
+        if (!this.ghostBadgeCanvas) return;
+        const ctx = this.ghostBadgeCanvas.getContext('2d');
+        ctx.clearRect(0, 0, 512, 140);
+
+        // Card background
+        ctx.fillStyle = 'rgba(10, 18, 38, 0.88)';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(6, 6, 500, 128, 14);
+        ctx.fill();
+        ctx.stroke();
+
+        // Inner frame
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(12, 12, 488, 116, 10);
+        ctx.stroke();
+
+        // Hologram indicator light
+        ctx.fillStyle = '#00f0ff';
+        ctx.beginPath();
+        ctx.arc(36, 42, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Title text
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 26px "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText(title || '🎯 3D 卫星预测虚影', 56, 49);
+
+        // Subtext / drift metrics
+        ctx.fillStyle = '#f59e0b';
+        ctx.font = 'bold 21px "Consolas", monospace';
+        ctx.fillText(driftText || '摄动轨道偏差对比', 24, 98);
+
+        this.ghostBadgeTex.needsUpdate = true;
+    }
+
+    rebuildGhostSatelliteModel(satId) {
+        if (!this.ghostSatBodyGroup) return;
+        while (this.ghostSatBodyGroup.children.length > 0) {
+            const c = this.ghostSatBodyGroup.children[0];
+            this.ghostSatBodyGroup.remove(c);
+            if (c.geometry) c.geometry.dispose();
+        }
+
+        // Build realistic holographic satellite body matching current satellite
+        const tempGroup = new THREE.Group();
+        switch ((satId || 'tiangong').toLowerCase()) {
+            case 'tiangong':
+                this.buildHighDetailTiangongStation(tempGroup);
+                break;
+            case 'iss':
+                this.buildHighDetailISSStation(tempGroup);
+                break;
+            case 'sentinel2a':
+                this.buildSentinel2AModel(tempGroup);
+                break;
+            case 'landsat9':
+                this.buildLandsat9Model(tempGroup);
+                break;
+            case 'starlink':
+                this.buildStarlinkV2Model(tempGroup);
+                break;
+            default:
+                this.buildGenericSatelliteModel(tempGroup);
+                break;
+        }
+
+        // Apply cybernetic holographic translucent material to all cloned parts
+        const ghostMat = new THREE.MeshStandardMaterial({
             color: 0x38bdf8,
             emissive: 0x0ea5e9,
-            emissiveIntensity: 0.6,
+            emissiveIntensity: 0.95,
+            metalness: 0.8,
+            roughness: 0.2,
             transparent: true,
-            opacity: 0.38,
-            wireframe: false,
+            opacity: 0.45,
             depthWrite: false,
             side: THREE.DoubleSide
         });
-        this.ghostSatMesh = new THREE.Mesh(geo, mat);
-        this.ghostSatMesh.visible = false;
-        this.ghostSatMesh.renderOrder = 10;
-
-        // Pulsating outer shell
-        const shellGeo = new THREE.OctahedronGeometry(0.72, 1);
-        const shellMat = new THREE.MeshBasicMaterial({
+        const wireMat = new THREE.MeshBasicMaterial({
             color: 0x7dd3fc,
+            wireframe: true,
             transparent: true,
-            opacity: 0.18,
-            wireframe: true
+            opacity: 0.32,
+            depthWrite: false
         });
-        this.ghostShellMesh = new THREE.Mesh(shellGeo, shellMat);
-        this.ghostShellMesh.visible = false;
-        this.ghostShellMesh.renderOrder = 11;
 
-        this.ghostGroup = new THREE.Group();
-        this.ghostGroup.add(this.ghostSatMesh);
-        this.ghostGroup.add(this.ghostShellMesh);
-        this.ghostGroup.visible = false;
-        this.scene.add(this.ghostGroup);
+        // Collect meshes first to avoid mutating children during tree traversal (prevents RangeError)
+        const meshes = [];
+        tempGroup.traverse((child) => {
+            if (child.isMesh) {
+                meshes.push(child);
+            }
+        });
+
+        meshes.forEach((m) => {
+            m.material = ghostMat;
+            m.renderOrder = 10;
+        });
+
+        this.ghostSatBodyGroup.add(tempGroup);
     }
 
-    showGhostSatellite(r_eci, quaternion) {
+    showGhostSatellite(r_eci, quaternion, driftMetrics = null, deltaHours = null, geodetic = null) {
         if (!this.ghostGroup || !r_eci) return;
         const x = r_eci[0] * this.scaleRatio;
         const y = r_eci[2] * this.scaleRatio;
@@ -1684,15 +1975,24 @@ class SpaceScene {
             this.ghostGroup.quaternion.set(
                 quaternion[1], quaternion[3], -quaternion[2], quaternion[0]);
         }
-        this.ghostSatMesh.visible = true;
-        this.ghostShellMesh.visible = true;
+
+        // Format HUD tag
+        const hStr = deltaHours !== null ? `+${deltaHours}h ` : '';
+        const driftKm = driftMetrics ? driftMetrics.total_drift_km.toFixed(2) : '--';
+        this._updateGhostBadge(`🎯 预测虚影 (${hStr}未来态)`, `摄动偏距: ${driftKm} km | 虚线轨道呈现`);
+
+        // Update ghost nadir footprint on Earth
+        if (geodetic && geodetic.length >= 2) {
+            this.updateGhostNadirProjector(r_eci, geodetic[0], geodetic[1]);
+        }
+
         this.ghostGroup.visible = true;
     }
 
     hideGhostSatellite() {
         if (this.ghostGroup) this.ghostGroup.visible = false;
-        if (this.ghostSatMesh) this.ghostSatMesh.visible = false;
-        if (this.ghostShellMesh) this.ghostShellMesh.visible = false;
+        if (this.ghostFootprint) this.ghostFootprint.visible = false;
+        if (this.ghostNadirBeam) this.ghostNadirBeam.visible = false;
     }
 
     setPredictionTargetPoint(r_eci) {
@@ -2151,36 +2451,75 @@ class SpaceScene {
 
         const nowSec = performance.now() * 0.001;
 
-        // 1a. Earth self-rotation — frame-level wall-clock GMST drive.
-        //     Ensures Earth spins continuously at the true sidereal rate
-        //     (1 rev / 86164.1 s) regardless of simulation playback state.
-        //     tick() in main.js overrides with the authoritative epoch-locked
-        //     GMST; this fills the gap between tick() calls (every ~33ms).
-        {
-            const nowMs  = Date.now();
-            const dtMs   = this._lastFrameMs !== undefined ? (nowMs - this._lastFrameMs) : 0;
-            this._lastFrameMs = nowMs;
-            // Sidereal angular velocity: 2π / 86164.1 rad/s
-            const OMEGA_EARTH = 7.2921150e-5; // rad/s
-            if (dtMs > 0 && dtMs < 200) {
-                const dtSec = dtMs * 0.001;
-                if (this.earthMesh) {
+        // 1a. Earth self-rotation drive:
+        //     - If isFutureEpochAligned is active, Earth locks strictly to predicted future GMST.
+        //     - Else if earthAutoSpin is active (user preview mode), rotates smoothly at earthSpinSpeed.
+        //     - Otherwise, maintains sidereal rotation or authoritative epoch GMST.
+        if (this.earthMesh) {
+            if (this.isFutureEpochAligned) {
+                if (this.predictedGmstRad !== null) {
+                    this.earthMesh.rotation.y = this.predictedGmstRad;
+                    this.currentGmstRad = this.predictedGmstRad;
+                }
+            } else if (this.earthAutoSpin) {
+                this.earthMesh.rotation.y += this.earthSpinSpeed;
+                this.currentGmstRad = this.earthMesh.rotation.y;
+                if (this.cloudsMesh) {
+                    this.cloudsMesh.rotation.y += this.earthSpinSpeed * 1.002;
+                }
+            } else {
+                const nowMs  = Date.now();
+                const dtMs   = this._lastFrameMs !== undefined ? (nowMs - this._lastFrameMs) : 0;
+                this._lastFrameMs = nowMs;
+                const OMEGA_EARTH = 7.2921150e-5; // rad/s
+                if (dtMs > 0 && dtMs < 200) {
+                    const dtSec = dtMs * 0.001;
                     this.earthMesh.rotation.y += OMEGA_EARTH * dtSec;
                     this.currentGmstRad = this.earthMesh.rotation.y;
-                }
-                if (this.cloudsMesh) {
-                    // Clouds rotate slightly faster than the surface
-                    this.cloudsMesh.rotation.y += OMEGA_EARTH * dtSec * 1.002;
+                    if (this.cloudsMesh) {
+                        this.cloudsMesh.rotation.y += OMEGA_EARTH * dtSec * 1.002;
+                    }
                 }
             }
         }
 
-        // 1b. Ghost satellite pulsation
-        if (this.ghostGroup && this.ghostGroup.visible && this.ghostShellMesh) {
-            const pulse = 0.20 + 0.06 * Math.sin(nowSec * 2.8);
-            this.ghostShellMesh.material.opacity = pulse;
-            const scalePulse = 0.20 + 0.02 * Math.sin(nowSec * 2.0);
-            this.ghostGroup.scale.setScalar(scalePulse);
+        // 1b. 3D Ghost Satellite Hologram Component Animation
+        if (this.ghostGroup && this.ghostGroup.visible) {
+            if (this.ghostRingInner) {
+                this.ghostRingInner.rotation.z += 0.022;
+            }
+            if (this.ghostRingOuter) {
+                this.ghostRingOuter.rotation.x += 0.016;
+                this.ghostRingOuter.rotation.y += 0.012;
+            }
+            if (this.ghostBracketMesh) {
+                const bScale = 1.0 + 0.04 * Math.sin(nowSec * 3.2);
+                this.ghostBracketMesh.scale.set(bScale, bScale, bScale);
+            }
+            // Update ghost laser beam connection to Earth surface footprint
+            if (this.ghostNadirBeam && this.ghostNadirBeam.visible && this.ghostFootprint && this.ghostFootprint.visible) {
+                const fpWorld = new THREE.Vector3();
+                this.ghostFootprint.getWorldPosition(fpWorld);
+                const ghostPos = this.ghostGroup.position;
+                const posArr = new Float32Array([
+                    ghostPos.x, ghostPos.y, ghostPos.z,
+                    fpWorld.x, fpWorld.y, fpWorld.z
+                ]);
+                this.ghostNadirBeam.geometry.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+                this.ghostNadirBeam.computeLineDistances();
+            }
+        }
+
+        // 1c. Real Satellite Nadir Laser Beam Frame-Level Sync
+        if (this.nadirBeam && this.nadirBeam.visible && this.nadirFootprint && this.nadirFootprint.visible && this.satGroup) {
+            const fpWorld = new THREE.Vector3();
+            this.nadirFootprint.getWorldPosition(fpWorld);
+            const satPos = this.satGroup.position;
+            const posArr = new Float32Array([
+                satPos.x, satPos.y, satPos.z,
+                fpWorld.x, fpWorld.y, fpWorld.z
+            ]);
+            this.nadirBeam.geometry.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
         }
 
         // 2. Dynamic Earth Day/Night Shader Animation (City Lights Twinkle)
@@ -2254,5 +2593,32 @@ class SpaceScene {
         }
 
         this.renderer.render(this.scene, this.camera);
+    }
+
+    // Toggle interactive preview Earth auto-spin on polar axis
+    toggleEarthAutoSpin(forcedState = null, speed = 0.0015) {
+        if (forcedState !== null) {
+            this.earthAutoSpin = !!forcedState;
+        } else {
+            this.earthAutoSpin = !this.earthAutoSpin;
+        }
+        this.earthSpinSpeed = speed;
+        return this.earthAutoSpin;
+    }
+
+    // Toggle alignment of Earth orientation with future prediction epoch
+    setFutureEpochAlignment(aligned, targetGmstRad = null) {
+        this.isFutureEpochAligned = !!aligned;
+        if (targetGmstRad !== null) {
+            this.predictedGmstRad = targetGmstRad;
+        }
+        if (this.earthMesh && this.isFutureEpochAligned && this.predictedGmstRad !== null) {
+            this.earthMesh.rotation.y = this.predictedGmstRad;
+            this.currentGmstRad = this.predictedGmstRad;
+            if (this.cloudsMesh) {
+                this.cloudsMesh.rotation.y = this.predictedGmstRad + 0.04;
+            }
+        }
+        return this.isFutureEpochAligned;
     }
 }
