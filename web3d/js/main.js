@@ -30,6 +30,9 @@ document.addEventListener('DOMContentLoaded', () => {
         constellationData: null,
         baseEpochMjd: 61299.8,
         baseEpochDate: new Date(),
+        predictionHours: 1.0,
+        isPredictionLocked: false,
+        predictedTargetPoint: null,
     };
 
     // UI elements
@@ -46,6 +49,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const dockOrbitPeriodProgress = document.getElementById('dock-orbit-period-progress');
     const dockOrbitProgressBar = document.getElementById('dock-orbit-progress-bar');
     const dockConstellationInfo = document.getElementById('dock-constellation-info');
+    const dockSimTimeVal = document.getElementById('dock-sim-time-val');
+
+    const btnPred1h = document.getElementById('btn-pred-1h');
+    const btnPred5h = document.getElementById('btn-pred-5h');
+    const btnPred10h = document.getElementById('btn-pred-10h');
+    const btnPred1d = document.getElementById('btn-pred-1d');
+    const btnPred3d = document.getElementById('btn-pred-3d');
+    const btnPredPoint = document.getElementById('btn-pred-point');
 
     const btnLayerSgp4 = document.getElementById('btn-layer-sgp4');
     const btnLayerTruth = document.getElementById('btn-layer-truth');
@@ -500,14 +511,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const utcS = String(curDate.getUTCSeconds()).padStart(2, '0');
         const curMjd = 40587.0 + (curDate.getTime() / 86400000.0);
 
-        if (clockUtc) clockUtc.textContent = beijingString;
-        if (clockMjd) clockMjd.textContent = `UTC: ${utcH}:${utcMin}:${utcS} | MJD: ${curMjd.toFixed(4)}`;
+        if (!state.isPredictionLocked) {
+            if (dockSimTimeVal) dockSimTimeVal.textContent = beijingString;
+            if (clockUtc) clockUtc.textContent = beijingString;
+            if (clockMjd) clockMjd.textContent = `UTC: ${utcH}:${utcMin}:${utcS} | MJD: ${curMjd.toFixed(4)}`;
 
-        if (dockStreamStatus) {
-            if (state.warpMultiplier === 1.0) {
-                dockStreamStatus.textContent = state.isPlaying ? '真实遥测流实时同步 (1:1 LIVE)' : '实时遥测流已暂停';
-            } else {
-                dockStreamStatus.textContent = state.isPlaying ? `动力学超光速推演 (${state.warpMultiplier}x WARP)` : '动力学推演已暂停';
+            if (dockStreamStatus) {
+                if (state.warpMultiplier === 1.0) {
+                    dockStreamStatus.textContent = state.isPlaying ? '真实遥测流实时同步 (1:1 LIVE)' : '实时遥测流已暂停';
+                } else {
+                    dockStreamStatus.textContent = state.isPlaying ? `动力学超光速推演 (${state.warpMultiplier}x WARP)` : '动力学推演已暂停';
+                }
             }
         }
 
@@ -543,7 +557,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 3. Update Focused Satellite High-Precision Telemetry & 3D Attitude
-        if (state.trajectoryData && state.trajectoryData.states_eci && state.trajectoryData.states_eci.length > 0) {
+        if (!state.isPredictionLocked && state.trajectoryData && state.trajectoryData.states_eci && state.trajectoryData.states_eci.length > 0) {
             const traj = state.trajectoryData;
             const states = traj.states_eci;
             const times = traj.times_s;
@@ -875,6 +889,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Satellite switch
     satSelect.addEventListener('change', async (e) => {
         state.currentSatId = e.target.value;
+        state.isPredictionLocked = false;
+        scene.hidePredictionOrbit();
+        document.querySelectorAll('.predict-btn').forEach(b => b.classList.remove('active'));
         scene.switchSatelliteModel(state.currentSatId);
         if (state.constellationData) {
             scene.updateConstellation(state.constellationData);
@@ -889,6 +906,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Propagator switch
     propSelect.addEventListener('change', (e) => {
         state.currentPropagator = e.target.value;
+        state.isPredictionLocked = false;
+        scene.hidePredictionOrbit();
         updatePropagation();
     });
 
@@ -1142,6 +1161,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const warp = parseFloat(btn.getAttribute('data-warp'));
             state.warpMultiplier = warp;
             state.isPlaying = true;
+            state.isPredictionLocked = false;
+            scene.hidePredictionOrbit();
+            document.querySelectorAll('.predict-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.warp-speed-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             if (btnWarpPause) {
@@ -1174,6 +1196,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Reset to Real-Time Network Beijing Time Now
     if (btnWarpNow) {
         btnWarpNow.addEventListener('click', () => {
+            state.isPredictionLocked = false;
+            scene.hidePredictionOrbit();
+            document.querySelectorAll('.predict-btn').forEach(b => b.classList.remove('active'));
             state.baseEpochDate = new Date();
             state.simTimeSec = 0.0;
             state.warpMultiplier = 1.0;
@@ -1186,6 +1211,120 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnWarpPause.classList.remove('active');
             }
             updateCelestial();
+        });
+    }
+
+    // 8. Future Orbit Prediction & Instant State Determination ("一点" & 1h, 5h, 10h, 1d, 3d)
+    async function executePrediction(deltaHours, isInstantLock = false) {
+        state.predictionHours = deltaHours;
+        const loadingIndicator = document.getElementById('live-status-text');
+        if (loadingIndicator) loadingIndicator.textContent = `PREDICTING +${deltaHours}h...`;
+
+        try {
+            const res = await fetch('/api/predict/future_state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sat_id: state.currentSatId,
+                    delta_hours: deltaHours,
+                    attitude_mode: state.attitudeMode,
+                    propagator: state.currentPropagator,
+                })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                state.predictedTargetPoint = data.target_point;
+
+                // 1. Render future predicted orbit line in 3D scene
+                if (data.orbit_arc_eci) {
+                    scene.showPredictionOrbit(data.orbit_arc_eci);
+                }
+                // 2. Mark the horizon end target point
+                scene.setPredictionTargetPoint(data.target_point.state_eci);
+
+                if (isInstantLock) {
+                    state.isPredictionLocked = true;
+                    // Directly move satellite model to that predicted position and orientation
+                    scene.setSatelliteState(data.target_point.state_eci, data.target_point.attitude.quaternion);
+
+                    // Update left panel telemetry values with predicted mathematical results
+                    const tp = data.target_point;
+                    if (elAlt) elAlt.textContent = tp.alt_km.toFixed(1);
+                    if (elVel) elVel.textContent = tp.vel_kms.toFixed(3);
+                    if (elLat) elLat.textContent = tp.lat_str;
+                    if (elLon) elLon.textContent = tp.lon_str;
+
+                    // Keplerian COE
+                    if (tp.coe) {
+                        if (elInc) elInc.textContent = tp.coe.i_deg.toFixed(2);
+                        if (elEcc) elEcc.textContent = tp.coe.e.toFixed(5);
+                        if (elSma) elSma.textContent = (tp.coe.a / 1000.0).toFixed(1);
+                        if (elPeriod) elPeriod.textContent = (tp.coe.period_s / 60.0).toFixed(1);
+                    }
+
+                    // Attitude
+                    if (elRoll) elRoll.textContent = `${tp.attitude.euler_display_deg[0] >= 0 ? '+' : ''}${tp.attitude.euler_display_deg[0].toFixed(2)}°`;
+                    if (elPitch) elPitch.textContent = `${tp.attitude.euler_display_deg[1] >= 0 ? '+' : ''}${tp.attitude.euler_display_deg[1].toFixed(2)}°`;
+                    if (elYaw) elYaw.textContent = `${tp.attitude.euler_display_deg[2] >= 0 ? '+' : ''}${tp.attitude.euler_display_deg[2].toFixed(2)}°`;
+
+                    if (elOmegaX) elOmegaX.textContent = `${tp.attitude.omega_deg_s[0] >= 0 ? '+' : ''}${tp.attitude.omega_deg_s[0].toFixed(3)}°/s`;
+                    if (elOmegaY) elOmegaY.textContent = `${tp.attitude.omega_deg_s[1] >= 0 ? '+' : ''}${tp.attitude.omega_deg_s[1].toFixed(3)}°/s`;
+                    if (elOmegaZ) elOmegaZ.textContent = `${tp.attitude.omega_deg_s[2] >= 0 ? '+' : ''}${tp.attitude.omega_deg_s[2].toFixed(3)}°/s`;
+                    if (elPointingStatus) elPointingStatus.textContent = tp.attitude.status;
+
+                    // Housekeeping TM
+                    if (tmSolarPower) tmSolarPower.textContent = `${tp.telemetry.solar_power_w} W (${tp.telemetry.is_eclipse ? '地影区' : '光照充能'})`;
+                    if (tmBusVoltage) tmBusVoltage.textContent = `${tp.telemetry.bus_voltage_v} V (稳压)`;
+                    if (tmWheelRpm) tmWheelRpm.textContent = `${tp.telemetry.wheel_rpm} RPM (推演)`;
+                    if (tmThermal) tmThermal.textContent = `+${tp.telemetry.thermal_c}°C 预测`;
+
+                    // Ground station contact
+                    if (tp.ground_station && tp.ground_station.active_station) {
+                        const st = tp.ground_station.active_station;
+                        if (bannerContact) bannerContact.style.display = 'flex';
+                        if (bannerStationName) bannerStationName.textContent = `${st.name} (预测捕获)`;
+                        if (bannerEl) bannerEl.textContent = `${st.elevation_deg.toFixed(1)}°`;
+                        if (bannerRange) bannerRange.textContent = `${st.range_km.toFixed(0)} km`;
+                        scene.setTrackingBeam(true, st.name);
+                    } else {
+                        if (bannerContact) bannerContact.style.display = 'none';
+                        scene.setTrackingBeam(false);
+                    }
+
+                    // Clocks
+                    if (dockSimTimeVal) dockSimTimeVal.textContent = `${tp.beijing_time} (预测定点)`;
+                    if (clockUtc) clockUtc.textContent = tp.beijing_time;
+                    if (clockMjd) clockMjd.textContent = `UTC: ${tp.utc_time} | MJD: ${tp.target_mjd.toFixed(4)}`;
+                    if (dockStreamStatus) dockStreamStatus.textContent = `🎯 瞬时定点预测呈现 (+${deltaHours}h 数学推演结果)`;
+                } else {
+                    if (dockStreamStatus) dockStreamStatus.textContent = `🔭 已计算呈现未来 +${deltaHours}h 预测轨道轨迹 (点击【🎯 一点】跳转瞬时姿态)`;
+                }
+            }
+        } catch (e) {
+            console.error('Prediction failed:', e);
+        } finally {
+            if (loadingIndicator) loadingIndicator.innerHTML = '<span class="live-pulse"></span> TELEMETRY LIVE';
+        }
+    }
+
+    // Prediction Buttons: 1h, 5h, 10h, 1d, 3d
+    const predictBtns = document.querySelectorAll('.predict-btn[data-hours]');
+    predictBtns.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const hours = parseFloat(btn.getAttribute('data-hours'));
+            predictBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (btnPredPoint) btnPredPoint.classList.remove('active');
+            await executePrediction(hours, false);
+        });
+    });
+
+    // "一点" Button: Directly predict and display satellite position & attitude at that time
+    if (btnPredPoint) {
+        btnPredPoint.addEventListener('click', async () => {
+            btnPredPoint.classList.add('active');
+            const hours = state.predictionHours || 1.0;
+            await executePrediction(hours, true);
         });
     }
 

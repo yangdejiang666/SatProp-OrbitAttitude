@@ -389,26 +389,50 @@
         </div>
     </aside>
 
-    <!-- Bottom Mission Control Dock (Real-Time Space Dynamics Warp Controller) -->
+    <!-- Bottom Mission Control Dock (Real-Time Space Dynamics & Future Orbit Prediction) -->
     <footer id="bottom-dock" class="glass-panel">
-        <div class="dock-warp-group">
-            <span class="dock-warp-label">动力学推演倍速:</span>
-            <div class="warp-btn-cluster">
-                <button id="btn-warp-1x" class="warp-speed-btn active" data-warp="1">1x 实时</button>
-                <button id="btn-warp-10x" class="warp-speed-btn" data-warp="10">10x</button>
-                <button id="btn-warp-60x" class="warp-speed-btn" data-warp="60">60x (1分/s)</button>
-                <button id="btn-warp-300x" class="warp-speed-btn" data-warp="300">300x (5分/s)</button>
-                <button id="btn-warp-1200x" class="warp-speed-btn" data-warp="1200">1200x (20分/s)</button>
-                <button id="btn-warp-pause" class="warp-speed-btn" title="暂停/继续动力学积分 (快捷键: 空格)">⏸ 暂停</button>
-                <button id="btn-warp-now" class="warp-reset-btn" title="立即归位至当前真实网络时刻">⏱️ 归位实测时刻</button>
+        <!-- Row 1: Future Orbit Prediction & Real-Time Simulation Time -->
+        <div class="dock-primary-row">
+            <div class="dock-prediction-group">
+                <span class="dock-predict-label">🔭 未来轨道预测:</span>
+                <div class="predict-btn-cluster">
+                    <button class="predict-btn" data-hours="1.0" id="btn-pred-1h" title="预测未来 1 小时内轨道外推轨迹">1小时后</button>
+                    <button class="predict-btn" data-hours="5.0" id="btn-pred-5h" title="预测未来 5 小时内轨道外推轨迹">5小时后</button>
+                    <button class="predict-btn" data-hours="10.0" id="btn-pred-10h" title="预测未来 10 小时内轨道外推轨迹">10小时后</button>
+                    <button class="predict-btn" data-hours="24.0" id="btn-pred-1d" title="预测未来 1 天 (24小时) 内轨道外推轨迹">1天后</button>
+                    <button class="predict-btn" data-hours="72.0" id="btn-pred-3d" title="预测未来 3 天 (72小时) 内轨道外推轨迹">3天后</button>
+                    <button class="predict-btn predict-instant-btn" id="btn-pred-point" title="预测并直接呈现卫星在那个时间的位置以及相应的姿态">🎯 一点</button>
+                </div>
+            </div>
+
+            <div class="dock-sim-time-box">
+                <span class="dock-sim-time-icon">⏱️</span>
+                <span class="dock-sim-time-label">推算时间:</span>
+                <span id="dock-sim-time-val" class="dock-sim-time-val">2026-09-17 10:00:00 CST</span>
+            </div>
+
+            <button id="btn-warp-now" class="warp-reset-btn" title="立即归位至当前真实网络时刻并恢复实时数据流">⏱️ 归位实测时刻</button>
+
+            <div class="dock-telemetry-stream-badge">
+                <span class="live-pulse"></span>
+                <span id="dock-stream-status">真实遥测流实时同步 (1:1 LIVE)</span>
             </div>
         </div>
 
-        <div class="dock-status-container">
-            <div class="dock-telemetry-stream-badge">
-                <span class="live-pulse"></span>
-                <span id="dock-stream-status">真实遥测流实时同步</span>
+        <!-- Row 2: Dynamics Warp Controller & Viewport Tools -->
+        <div class="dock-secondary-row">
+            <div class="dock-warp-group">
+                <span class="dock-warp-label">动力学推演倍速:</span>
+                <div class="warp-btn-cluster">
+                    <button id="btn-warp-1x" class="warp-speed-btn active" data-warp="1">1x 实时</button>
+                    <button id="btn-warp-10x" class="warp-speed-btn" data-warp="10">10x</button>
+                    <button id="btn-warp-60x" class="warp-speed-btn" data-warp="60">60x</button>
+                    <button id="btn-warp-300x" class="warp-speed-btn" data-warp="300">300x</button>
+                    <button id="btn-warp-1200x" class="warp-speed-btn" data-warp="1200">1200x</button>
+                    <button id="btn-warp-pause" class="warp-speed-btn" title="暂停/继续动力学积分 (快捷键: 空格)">⏸ 暂停</button>
+                </div>
             </div>
+
             <div class="dock-orbit-progress-wrapper">
                 <div class="dock-orbit-progress-info">
                     <span id="dock-orbit-phase-text">轨道真近点角 ν: 0.0°</span>
@@ -418,28 +442,24 @@
                     <div id="dock-orbit-progress-bar" class="dock-orbit-progress-fill"></div>
                 </div>
             </div>
-            <div class="dock-constellation-counter">
-                <span class="constellation-dot"></span>
-                <span id="dock-constellation-info">在轨全景监测: 7 颗实测空间飞行器多轨道解算</span>
-            </div>
-        </div>
 
-        <div class="dock-tools-group">
-            <button id="btn-quick-closeup" class="dock-pill-btn" title="聚焦近距离观察 3D 卫星结构细节">
-                🔍 卫星特写
-            </button>
-            <button id="btn-view-constellation" class="dock-pill-btn" title="全景视角总览地球周围所有卫星真实轨道">
-                🌌 全景星座
-            </button>
-            <button id="btn-toggle-hud" class="dock-pill-btn active" title="显示/隐藏 3D 浮动标牌">
-                🏷️ 3D标牌
-            </button>
-            <button id="btn-toggle-stations" class="dock-pill-btn active" title="显示/隐藏 地面站测控视场">
-                📶 测控站视场
-            </button>
-            <button id="btn-toggle-isl" class="dock-pill-btn active" title="显示/隐藏 星间激光链路">
-                🌐 星间链路 (ISL)
-            </button>
+            <div class="dock-tools-group">
+                <button id="btn-quick-closeup" class="dock-pill-btn" title="聚焦近距离观察 3D 卫星结构细节">
+                    🔍 卫星特写
+                </button>
+                <button id="btn-view-constellation" class="dock-pill-btn" title="全景视角总览地球周围所有卫星真实轨道">
+                    🌌 全景星座
+                </button>
+                <button id="btn-toggle-hud" class="dock-pill-btn active" title="显示/隐藏 3D 浮动标牌">
+                    🏷️ 3D标牌
+                </button>
+                <button id="btn-toggle-stations" class="dock-pill-btn active" title="显示/隐藏 地面站测控视场">
+                    📶 测控站视场
+                </button>
+                <button id="btn-toggle-isl" class="dock-pill-btn active" title="显示/隐藏 星间激光链路">
+                    🌐 星间链路 (ISL)
+                </button>
+            </div>
         </div>
     </footer>
 

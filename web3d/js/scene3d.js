@@ -1032,6 +1032,7 @@ class SpaceScene {
         this.orbitLines.drifted = this.createOrbitLineMesh(0xef4444, 1.5, true);
         this.orbitLines.maneuver = this.createOrbitLineMesh(0xf59e0b, 3.0, false);
         this.orbitLines.calibrated = this.createOrbitLineMesh(0x06b6d4, 2.6, false);
+        this.orbitLines.prediction = this.createOrbitLineMesh(0xfbbf24, 3.0, false);
     }
 
     createOrbitLineMesh(colorHex, linewidth, isDashed = false) {
@@ -1070,6 +1071,54 @@ class SpaceScene {
         if (this.orbitLines && this.orbitLines[key]) {
             this.orbitLines[key].visible = visible;
         }
+    }
+
+    showPredictionOrbit(eciPoints) {
+        if (!this.orbitLines.prediction) {
+            this.orbitLines.prediction = this.createOrbitLineMesh(0xfbbf24, 3.0, false);
+        }
+        this.updateOrbitGeometry('prediction', eciPoints);
+        this.setOrbitVisibility('prediction', true);
+    }
+
+    hidePredictionOrbit() {
+        this.setOrbitVisibility('prediction', false);
+        if (this.predictionTargetMarker) {
+            this.predictionTargetMarker.visible = false;
+        }
+    }
+
+    setPredictionTargetPoint(r_eci) {
+        if (!r_eci) return;
+        if (!this.predictionTargetMarker) {
+            const group = new THREE.Group();
+            
+            // Glowing reticle ring
+            const ringGeo = new THREE.RingGeometry(0.32, 0.40, 32);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            group.add(ring);
+            
+            // Center pulsating marker
+            const beaconGeo = new THREE.SphereGeometry(0.14, 16, 16);
+            const beaconMat = new THREE.MeshStandardMaterial({
+                color: 0xf59e0b,
+                emissive: 0xfbbf24,
+                emissiveIntensity: 0.85,
+                roughness: 0.15
+            });
+            const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+            group.add(beacon);
+
+            this.scene.add(group);
+            this.predictionTargetMarker = group;
+        }
+
+        const x = r_eci[0] * this.scaleRatio;
+        const y = r_eci[2] * this.scaleRatio;
+        const z = -r_eci[1] * this.scaleRatio;
+        this.predictionTargetMarker.position.set(x, y, z);
+        this.predictionTargetMarker.visible = true;
     }
 
     // =========================================================================
