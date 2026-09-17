@@ -141,15 +141,19 @@ class SpaceScene {
     createEarth() {
         const textureLoader = new THREE.TextureLoader();
 
-        // High-resolution NASA Blue Marble (Day) & Black Marble (Night Lights) & Specular Map
-        const dayTex = textureLoader.load('textures/earth_blue_marble.jpg');
-        dayTex.anisotropy = 4;
+        // High-resolution NASA Blue Marble (Day) & BeiDou Satellite Map & Black Marble (Night Lights)
+        this.dayTexNasa = textureLoader.load('textures/earth_blue_marble.jpg');
+        this.dayTexNasa.anisotropy = 4;
+        this.dayTexBeidou = textureLoader.load('textures/beidou_satellite_map.jpg');
+        this.dayTexBeidou.anisotropy = 4;
+        this.currentEarthMapLayer = 'NASA';
+
         const nightTex = textureLoader.load('textures/earth_night_lights.png');
         nightTex.anisotropy = 4;
         const specTex = textureLoader.load('textures/earth_specular.jpg');
 
         this.earthUniforms = {
-            uDayMap: { value: dayTex },
+            uDayMap: { value: this.dayTexNasa },
             uNightMap: { value: nightTex },
             uSpecularMap: { value: specTex },
             uSunDirection: { value: new THREE.Vector3(-0.95, 0.25, -0.15).normalize() },
@@ -232,7 +236,6 @@ class SpaceScene {
         });
 
         this.earthMesh = new THREE.Mesh(earthGeo, earthMat);
-        this.earthMesh.rotation.z = THREE.MathUtils.degToRad(-23.44);
         this.scene.add(this.earthMesh);
 
         // Dynamic cloud layer
@@ -246,7 +249,6 @@ class SpaceScene {
             depthWrite: false
         });
         this.cloudsMesh = new THREE.Mesh(cloudsGeo, cloudsMat);
-        this.cloudsMesh.rotation.z = THREE.MathUtils.degToRad(-23.44);
         this.scene.add(this.cloudsMesh);
     }
 
@@ -428,6 +430,137 @@ class SpaceScene {
     // =========================================================================
     // Update Celestial Systems from Backend Real Ephemeris API
     // =========================================================================
+    // =========================================================================
+    // Real-Time High-Precision Astrodynamical Celestial Motion (Every Frame)
+    // Earth Spin (GMST), Solar Revolution (Meeus Ephemeris), Lunar Orbit
+    // =========================================================================
+    updateCelestialRealtime(simEpochMs, simTimeSec = 0) {
+        if (!simEpochMs) return;
+        const jd = (simEpochMs / 86400000.0) + 2440587.5;
+        const T = (jd - 2451545.0) / 36525.0;
+
+        // 1. Greenwich Mean Sidereal Time (GMST) - IAU 1982 Model
+        let gmstDeg = (280.46061837 + 360.98564736629 * (jd - 2451545.0) + 0.000387933 * T * T - (T * T * T) / 38710000.0) % 360.0;
+        if (gmstDeg < 0) gmstDeg += 360.0;
+        const gmstRad = THREE.MathUtils.degToRad(gmstDeg);
+
+        if (this.earthMesh) {
+            this.earthMesh.rotation.y = gmstRad;
+        }
+        if (this.cloudsMesh) {
+            this.cloudsMesh.rotation.y = gmstRad + (simTimeSec * 0.00002) + 0.04;
+        }
+
+        // 2. Real Solar Ephemeris (Meeus Astronomical Algorithms)
+        const L0 = (280.46646 + 36000.76983 * T) % 360.0;
+        const M_sun = (357.52911 + 35999.05029 * T) % 360.0;
+        const M_rad = THREE.MathUtils.degToRad(M_sun);
+        const C_sun = (1.914602 - 0.004817 * T) * Math.sin(M_rad) +
+                      (0.019993 - 0.000101 * T) * Math.sin(2 * M_rad) +
+                      0.000289 * Math.sin(3 * M_rad);
+        const lambdaSun = THREE.MathUtils.degToRad((L0 + C_sun) % 360.0);
+        const eps = THREE.MathUtils.degToRad(23.439291 - 0.0130042 * T);
+
+        const sunX = Math.cos(lambdaSun);
+        const sunY = Math.sin(lambdaSun) * Math.cos(eps);
+        const sunZ = Math.sin(lambdaSun) * Math.sin(eps);
+
+        // Convert ECI to Three.js coordinates (X, Z, -Y)
+        const sx = sunX;
+        const sy = sunZ;
+        const sz = -sunY;
+
+        if (this.sunLight) {
+            this.sunLight.position.set(sx * 100, sy * 100, sz * 100);
+        }
+        if (this.earthUniforms && this.earthUniforms.uSunDirection) {
+            this.earthUniforms.uSunDirection.value.set(sx, sy, sz).normalize();
+        }
+        if (this.sunGroup) {
+            this.sunGroup.position.set(sx * this.sunDistance, sy * this.sunDistance, sz * this.sunDistance);
+        }
+
+        // 3. Real Lunar Ephemeris (Meeus Lunar Orbit ~27.32 days period)
+        const Lp = (218.3164477 + 481267.88123421 * T) % 360.0;
+        const D_moon = (297.8501921 + 445267.1114034 * T) % 360.0;
+        const M_moon = (134.9633964 + 477198.8675055 * T) % 360.0;
+        const F_moon = (93.2720950 + 483202.0175233 * T) % 360.0;
+
+        const D_rad = THREE.MathUtils.degToRad(D_moon);
+        const Mm_rad = THREE.MathUtils.degToRad(M_moon);
+        const Fm_rad = THREE.MathUtils.degToRad(F_moon);
+
+        const lamMoonDeg = Lp + 6.289 * Math.sin(Mm_rad) - 1.274 * Math.sin(2 * D_rad - Mm_rad) + 0.658 * Math.sin(2 * D_rad) - 0.214 * Math.sin(2 * Mm_rad) - 0.186 * Math.sin(M_rad);
+        const betMoonDeg = 5.128 * Math.sin(Fm_rad) + 0.280 * Math.sin(Mm_rad + Fm_rad) + 0.277 * Math.sin(Mm_rad - Fm_rad) + 0.173 * Math.sin(2 * D_rad - Fm_rad);
+
+        const lamMoonRad = THREE.MathUtils.degToRad(lamMoonDeg % 360.0);
+        const betMoonRad = THREE.MathUtils.degToRad(betMoonDeg);
+
+        const cosBet = Math.cos(betMoonRad);
+        const sinBet = Math.sin(betMoonRad);
+        const cosLam = Math.cos(lamMoonRad);
+        const sinLam = Math.sin(lamMoonRad);
+
+        const mX = cosBet * cosLam;
+        const mY = cosBet * sinLam * Math.cos(eps) - sinBet * Math.sin(eps);
+        const mZ = cosBet * sinLam * Math.sin(eps) + sinBet * Math.cos(eps);
+
+        if (this.moonGroup) {
+            this.moonGroup.position.set(mX * this.moonDisplayDist, mZ * this.moonDisplayDist, -mY * this.moonDisplayDist);
+        }
+    }
+
+    setEarthMapLayer(layerName) {
+        if (layerName === 'BEIDOU') {
+            if (this.dayTexBeidou && this.earthUniforms) {
+                this.earthUniforms.uDayMap.value = this.dayTexBeidou;
+                this.currentEarthMapLayer = 'BEIDOU';
+            }
+        } else {
+            if (this.dayTexNasa && this.earthUniforms) {
+                this.earthUniforms.uDayMap.value = this.dayTexNasa;
+                this.currentEarthMapLayer = 'NASA';
+            }
+        }
+        return this.currentEarthMapLayer;
+    }
+
+    flyToRegion(latDeg, lonDeg, altitudeScale = 1.85) {
+        const phi = THREE.MathUtils.degToRad(90 - latDeg);
+        const theta = THREE.MathUtils.degToRad(lonDeg + 180);
+
+        const x = -(this.earthRadius * Math.sin(phi) * Math.cos(theta));
+        const y = this.earthRadius * Math.cos(phi);
+        const z = this.earthRadius * Math.sin(phi) * Math.sin(theta);
+
+        const localPos = new THREE.Vector3(x, y, z);
+        const worldPos = localPos.clone();
+        if (this.earthMesh) {
+            worldPos.applyEuler(this.earthMesh.rotation);
+        }
+
+        const camPos = worldPos.clone().multiplyScalar(altitudeScale);
+
+        const startPos = this.camera.position.clone();
+        const startTarget = this.controls.target.clone();
+        const startTime = performance.now();
+        const duration = 1400.0;
+
+        const animateFly = (t) => {
+            const elapsed = t - startTime;
+            const progress = Math.min(1.0, elapsed / duration);
+            const ease = 0.5 - 0.5 * Math.cos(progress * Math.PI);
+
+            this.camera.position.lerpVectors(startPos, camPos, ease);
+            this.controls.target.lerpVectors(startTarget, worldPos, ease);
+
+            if (progress < 1.0) {
+                requestAnimationFrame(animateFly);
+            }
+        };
+        requestAnimationFrame(animateFly);
+    }
+
     updateCelestialEphemeris(data) {
         if (!data || !data.sun) return;
         this.celestialData = data;
@@ -1033,6 +1166,17 @@ class SpaceScene {
         this.orbitLines.maneuver = this.createOrbitLineMesh(0xf59e0b, 3.0, false);
         this.orbitLines.calibrated = this.createOrbitLineMesh(0x06b6d4, 2.6, false);
         this.orbitLines.prediction = this.createOrbitLineMesh(0xfbbf24, 3.0, false);
+
+        // Future Orbit Prediction: Nominal Reference Orbit (Cyan Dashed) & Perturbed Offset Orbit (Amber Glow)
+        this.orbitLines.nominal = this.createOrbitLineMesh(0x38bdf8, 2.0, true);
+        this.orbitLines.offset = this.createOrbitLineMesh(0xf59e0b, 3.2, false);
+
+        // Spatial Offset Drift Line (Red/Orange Line connecting nominal and offset target points)
+        const driftMat = new THREE.LineDashedMaterial({ color: 0xef4444, dashSize: 0.25, gapSize: 0.15, transparent: true, opacity: 0.95 });
+        const driftGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        this.offsetDriftLine = new THREE.Line(driftGeo, driftMat);
+        this.offsetDriftLine.visible = false;
+        this.scene.add(this.offsetDriftLine);
     }
 
     createOrbitLineMesh(colorHex, linewidth, isDashed = false) {
@@ -1081,8 +1225,50 @@ class SpaceScene {
         this.setOrbitVisibility('prediction', true);
     }
 
+    showOffsetOrbitPrediction(nominalArc, offsetArc, nominalTarget, offsetTarget, driftMetrics) {
+        if (nominalArc && nominalArc.length > 0) {
+            this.updateOrbitGeometry('nominal', nominalArc);
+            this.setOrbitVisibility('nominal', true);
+        }
+        if (offsetArc && offsetArc.length > 0) {
+            this.updateOrbitGeometry('offset', offsetArc);
+            this.setOrbitVisibility('offset', true);
+        }
+
+        // Draw spatial drift line between nominal and offset target positions
+        if (nominalTarget && offsetTarget && nominalTarget.state_eci && offsetTarget.state_eci && this.offsetDriftLine) {
+            const nomX = nominalTarget.state_eci[0] * this.scaleRatio;
+            const nomY = nominalTarget.state_eci[2] * this.scaleRatio;
+            const nomZ = -nominalTarget.state_eci[1] * this.scaleRatio;
+
+            const offX = offsetTarget.state_eci[0] * this.scaleRatio;
+            const offY = offsetTarget.state_eci[2] * this.scaleRatio;
+            const offZ = -offsetTarget.state_eci[1] * this.scaleRatio;
+
+            const pos = new Float32Array([nomX, nomY, nomZ, offX, offY, offZ]);
+            this.offsetDriftLine.geometry.dispose();
+            this.offsetDriftLine.geometry = new THREE.BufferGeometry();
+            this.offsetDriftLine.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            this.offsetDriftLine.computeLineDistances();
+            this.offsetDriftLine.visible = true;
+        }
+
+        // Place target marker at the exact offset target location
+        if (offsetTarget && offsetTarget.state_eci) {
+            this.setPredictionTargetPoint(offsetTarget.state_eci);
+            // Place satellite 3D model directly on the offset orbit
+            const quat = offsetTarget.attitude ? offsetTarget.attitude.quaternion : null;
+            this.setSatelliteState(offsetTarget.state_eci, quat);
+        }
+    }
+
     hidePredictionOrbit() {
         this.setOrbitVisibility('prediction', false);
+        this.setOrbitVisibility('nominal', false);
+        this.setOrbitVisibility('offset', false);
+        if (this.offsetDriftLine) {
+            this.offsetDriftLine.visible = false;
+        }
         if (this.predictionTargetMarker) {
             this.predictionTargetMarker.visible = false;
         }
@@ -1361,7 +1547,7 @@ class SpaceScene {
             });
         });
 
-        this.scene.add(this.stationGroup);
+        this.earthMesh.add(this.stationGroup);
     }
 
     createTrackingBeam() {
@@ -1387,8 +1573,11 @@ class SpaceScene {
         }
 
         this.activeStation = st;
+        const stWorld = new THREE.Vector3();
+        st.dishGroup.getWorldPosition(stWorld);
+
         const positions = new Float32Array([
-            st.position.x, st.position.y, st.position.z,
+            stWorld.x, stWorld.y, stWorld.z,
             this.satGroup.position.x, this.satGroup.position.y, this.satGroup.position.z
         ]);
         this.trackingBeam.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -1572,8 +1761,11 @@ class SpaceScene {
         // Update tracking laser beam & antenna boresight alignment
         if (this.trackingBeam && this.trackingBeam.visible && this.activeStation && this.satGroup) {
             const st = this.activeStation;
+            const stWorld = new THREE.Vector3();
+            st.dishGroup.getWorldPosition(stWorld);
+
             const positions = new Float32Array([
-                st.position.x, st.position.y, st.position.z,
+                stWorld.x, stWorld.y, stWorld.z,
                 this.satGroup.position.x, this.satGroup.position.y, this.satGroup.position.z
             ]);
             this.trackingBeam.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));

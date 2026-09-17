@@ -411,6 +411,10 @@
                 <span id="dock-sim-time-val" class="dock-sim-time-val">2026-09-17 10:00:00 CST</span>
             </div>
 
+            <span id="dock-drift-tag" class="dock-drift-badge" style="display:none;" title="无摄动基准轨 vs 摄动偏移轨之空间位移偏差">
+                🎯 偏移轨道定点: 偏距 0.00 km
+            </span>
+
             <button id="btn-warp-now" class="warp-reset-btn" title="立即归位至当前真实网络时刻并恢复实时数据流">⏱️ 归位实测时刻</button>
 
             <div class="dock-telemetry-stream-badge">
@@ -449,6 +453,12 @@
                 </button>
                 <button id="btn-view-constellation" class="dock-pill-btn" title="全景视角总览地球周围所有卫星真实轨道">
                     🌌 全景星座
+                </button>
+                <button id="btn-beidou-vision" class="dock-pill-btn" title="查看北斗卫星高分辨率 3D 实时遥感影像与多光谱观测">
+                    🛰️ 北斗3D实景
+                </button>
+                <button id="btn-toggle-beidou-map" class="dock-pill-btn" title="切换地球底图: 北斗高精遥感影像 / NASA蓝色弹珠">
+                    🗺️ 北斗遥感底图
                 </button>
                 <button id="btn-toggle-hud" class="dock-pill-btn active" title="显示/隐藏 3D 浮动标牌">
                     🏷️ 3D标牌
@@ -735,6 +745,84 @@
         </div>
         <div class="modal-btn-row">
             <button class="dock-pill-btn" data-close="modal-telemetry-detail">关闭</button>
+        </div>
+    </div>
+
+    <!-- 5. BeiDou Real-Time 3D Satellite Imagery & Regional Vision Modal -->
+    <div id="modal-beidou-vision" class="glass-panel app-modal" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>🛰️ 北斗卫星与高分遥感 3D 实时影像与地面多光谱观测系统</h3>
+                <button class="modal-close-btn" data-close="modal-beidou-vision">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="beidou-tabs-bar">
+                    <button class="beidou-region-btn active" data-region="beijing">
+                        <span>🇨🇳</span> 华北 / 北京重点保障区 (0.5m正射)
+                    </button>
+                    <button class="beidou-region-btn" data-region="sanya">
+                        <span>🌊</span> 南海 / 三亚测控与深水港
+                    </button>
+                    <button class="beidou-region-btn" data-region="kashi">
+                        <span>🏔️</span> 西部 / 喀什深空测控基地
+                    </button>
+                    <button class="beidou-region-btn" data-region="nadir">
+                        <span>📍</span> 当前卫星星下点实时光学扫描
+                    </button>
+                </div>
+
+                <div class="beidou-viewer-layout">
+                    <!-- Left: High-Definition Satellite Optical Imagery & Tactical HUD -->
+                    <div class="beidou-imagery-frame">
+                        <img id="beidou-imagery-view" class="beidou-imagery-img" src="textures/beidou_regional_beijing.jpg" alt="BeiDou 3D Satellite Imagery">
+                        <div class="beidou-imagery-hud-overlay">
+                            <div class="beidou-hud-corner-tl" id="beidou-hud-tag-tl">
+                                <b>BEIDOU-3 OPTICAL SWATH</b><br>
+                                RES: 0.50m GSD | BAND: RGB PAN-SHARPENED
+                            </div>
+                            <div class="beidou-hud-corner-br" id="beidou-hud-tag-br">
+                                <b>TARGET COORDINATES</b><br>
+                                LAT: 39.90°N | LON: 116.40°E | ELEV: +48.9°
+                            </div>
+                            <div class="beidou-hud-reticle"></div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Satellite Sensor Telemetry & Regional Details -->
+                    <div class="beidou-telemetry-sidebar">
+                        <div class="beidou-spec-card">
+                            <div class="beidou-spec-title">
+                                <span>🎯 观测区核心参数与地理信息</span>
+                                <span id="beidou-sensor-mode" class="badge-tag">光学高分-1型</span>
+                            </div>
+                            <div class="param-row"><span>目标地区:</span><b id="beidou-spec-region" class="mono nominal">华北 / 北京国家航天中控区域</b></div>
+                            <div class="param-row"><span>中心经纬度:</span><b id="beidou-spec-coords" class="mono">39.9042°N, 116.4074°E</b></div>
+                            <div class="param-row"><span>地面分辨率 (GSD):</span><b id="beidou-spec-gsd" class="mono nominal">0.50 米 (全色谱融合)</b></div>
+                            <div class="param-row"><span>星下点扫描幅宽:</span><b id="beidou-spec-swath" class="mono">60.0 km (推扫式多光谱)</b></div>
+                            <div class="param-row"><span>太阳天顶角 (SZA):</span><b id="beidou-spec-sza" class="mono">38.4° (日照优良)</b></div>
+                            <div class="param-row"><span>观测视场云量:</span><b id="beidou-spec-cloud" class="mono nominal">&lt; 3.0% (晴空无遮挡)</b></div>
+                        </div>
+
+                        <div class="beidou-spec-card">
+                            <div class="beidou-spec-title">
+                                <span>📡 载荷遥测与多光谱状态</span>
+                                <span class="badge-tag nominal">LOCK 100%</span>
+                            </div>
+                            <div class="param-row"><span>焦平面探测器温度:</span><b class="mono nominal">-15.2°C (深冷制冷正常)</b></div>
+                            <div class="param-row"><span>数传下行链路速率:</span><b class="mono nominal">1.2 Gbps (X/Ka双频高速)</b></div>
+                            <div class="param-row"><span>数据压缩算法:</span><b class="mono">JPEG-LS 空间无损压缩</b></div>
+                            <div class="param-row"><span>正射纠正与DEM匹配:</span><b class="mono nominal">WGS-84 / CGCS2000 严密匹配</b></div>
+                        </div>
+
+                        <button id="btn-beidou-fly-region" class="beidou-fly-btn">
+                            🚀 3D视口飞跃漫游至该地区
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-btn-row">
+                <button class="dock-pill-btn" data-close="modal-beidou-vision">关闭观测系统</button>
+            </div>
         </div>
     </div>
 

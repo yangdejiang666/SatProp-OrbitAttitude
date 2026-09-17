@@ -495,6 +495,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentSimMs = state.baseEpochDate.getTime() + state.simTimeSec * 1000;
         const curDate = new Date(currentSimMs);
 
+        // Update real celestial bodies (Earth rotation GMST, Meeus Sun, Meeus Moon) continuously every frame
+        scene.updateCelestialRealtime(currentSimMs, state.simTimeSec);
+
         // Compute real-time Beijing Time (CST, UTC+8)
         const bjDate = new Date(curDate.getTime() + (curDate.getTimezoneOffset() * 60000) + (8 * 3600000));
         const bjY = bjDate.getFullYear();
@@ -523,6 +526,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     dockStreamStatus.textContent = state.isPlaying ? `动力学超光速推演 (${state.warpMultiplier}x WARP)` : '动力学推演已暂停';
                 }
             }
+        } else {
+            // In prediction locked mode, if user plays simulation, clocks advance from future epoch
+            if (dockSimTimeVal) dockSimTimeVal.textContent = `${beijingString} (推演定点)`;
+            if (clockUtc) clockUtc.textContent = beijingString;
+            if (clockMjd) clockMjd.textContent = `UTC: ${utcH}:${utcMin}:${utcS} | MJD: ${curMjd.toFixed(4)}`;
         }
 
         // 2. Update ALL Constellation Satellites along their real orbital ephemerides
@@ -1198,6 +1206,8 @@ document.addEventListener('DOMContentLoaded', () => {
         btnWarpNow.addEventListener('click', () => {
             state.isPredictionLocked = false;
             scene.hidePredictionOrbit();
+            const dockDriftTag = document.getElementById('dock-drift-tag');
+            if (dockDriftTag) dockDriftTag.style.display = 'none';
             document.querySelectorAll('.predict-btn').forEach(b => b.classList.remove('active'));
             state.baseEpochDate = new Date();
             state.simTimeSec = 0.0;
@@ -1210,12 +1220,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnWarpPause.textContent = '⏸ 暂停';
                 btnWarpPause.classList.remove('active');
             }
+            scene.updateCelestialRealtime(state.baseEpochDate.getTime(), 0.0);
             updateCelestial();
         });
     }
 
     // 8. Future Orbit Prediction & Instant State Determination ("一点" & 1h, 5h, 10h, 1d, 3d)
-    async function executePrediction(deltaHours, isInstantLock = false) {
+    async function executePrediction(deltaHours, isInstantLock = true) {
         state.predictionHours = deltaHours;
         const loadingIndicator = document.getElementById('live-status-text');
         if (loadingIndicator) loadingIndicator.textContent = `PREDICTING +${deltaHours}h...`;
@@ -1235,17 +1246,44 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.status === 'success') {
                 state.predictedTargetPoint = data.target_point;
 
-                // 1. Render future predicted orbit line in 3D scene
-                if (data.orbit_arc_eci) {
-                    scene.showPredictionOrbit(data.orbit_arc_eci);
-                }
-                // 2. Mark the horizon end target point
-                scene.setPredictionTargetPoint(data.target_point.state_eci);
+                // 1. Render both nominal orbit (Cyan) and perturbed offset orbit (Amber) with drift vector
+                scene.showOffsetOrbitPrediction(
+                    data.nominal_orbit_arc_eci,
+                    data.offset_orbit_arc_eci,
+                    data.nominal_target,
+                    data.target_point,
+                    data.drift_metrics
+                );
 
                 if (isInstantLock) {
                     state.isPredictionLocked = true;
-                    // Directly move satellite model to that predicted position and orientation
+                    // Jump mission simulation clock to the future predicted instant
+                    state.simTimeSec = deltaHours * 3600.0;
+                    const futureSimMs = state.baseEpochDate.getTime() + state.simTimeSec * 1000;
+
+                    // Immediately rotate Earth, Sun, Moon to that future exact astronomical moment
+                    scene.updateCelestialRealtime(futureSimMs, state.simTimeSec);
+
+                    // Update bottom dock spatial drift badge
+                    const dockDriftTag = document.getElementById('dock-drift-tag');
+                    if (dockDriftTag && data.drift_metrics) {
+                        const dm = data.drift_metrics;
+                        dockDriftTag.style.display = 'inline-flex';
+                        dockDriftTag.innerHTML = `🎯 偏移轨道定点: 偏距 <b>${dm.total_drift_km.toFixed(2)} km</b> (沿轨: ${(dm.dr_in_track_m / 1000.0).toFixed(2)} km, 径向: ${dm.dr_radial_m.toFixed(1)} m)`;
+                    }
+
+                    // Directly place satellite 3D model on the offset orbit with future attitude
                     scene.setSatelliteState(data.target_point.state_eci, data.target_point.attitude.quaternion);
+
+                    // Smoothly track satellite in camera if active
+                    if (scene.controls && (state.cameraMode === 'FOLLOW' || state.cameraMode === 'CLOSEUP')) {
+                        const tgt = new THREE.Vector3(
+                            data.target_point.state_eci[0] * scene.scaleRatio,
+                            data.target_point.state_eci[2] * scene.scaleRatio,
+                            -data.target_point.state_eci[1] * scene.scaleRatio
+                        );
+                        scene.controls.target.copy(tgt);
+                    }
 
                     // Update left panel telemetry values with predicted mathematical results
                     const tp = data.target_point;
@@ -1292,12 +1330,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     // Clocks
-                    if (dockSimTimeVal) dockSimTimeVal.textContent = `${tp.beijing_time} (预测定点)`;
+                    if (dockSimTimeVal) dockSimTimeVal.textContent = `${tp.beijing_time} (推演定点)`;
                     if (clockUtc) clockUtc.textContent = tp.beijing_time;
                     if (clockMjd) clockMjd.textContent = `UTC: ${tp.utc_time} | MJD: ${tp.target_mjd.toFixed(4)}`;
-                    if (dockStreamStatus) dockStreamStatus.textContent = `🎯 瞬时定点预测呈现 (+${deltaHours}h 数学推演结果)`;
-                } else {
-                    if (dockStreamStatus) dockStreamStatus.textContent = `🔭 已计算呈现未来 +${deltaHours}h 预测轨道轨迹 (点击【🎯 一点】跳转瞬时姿态)`;
+                    if (dockStreamStatus) dockStreamStatus.textContent = `🎯 瞬时定点预测呈现 (+${deltaHours}h 摄动外推数学结果)`;
                 }
             }
         } catch (e) {
@@ -1307,7 +1343,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Prediction Buttons: 1h, 5h, 10h, 1d, 3d
+    // Prediction Buttons: 1h, 5h, 10h, 1d, 3d (Instantly calculates future state and jumps satellite)
     const predictBtns = document.querySelectorAll('.predict-btn[data-hours]');
     predictBtns.forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -1315,16 +1351,153 @@ document.addEventListener('DOMContentLoaded', () => {
             predictBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             if (btnPredPoint) btnPredPoint.classList.remove('active');
-            await executePrediction(hours, false);
+            await executePrediction(hours, true);
         });
     });
 
-    // "一点" Button: Directly predict and display satellite position & attitude at that time
+    // "一点" Button: Directly predict and display satellite position & attitude at current forecast horizon
     if (btnPredPoint) {
         btnPredPoint.addEventListener('click', async () => {
             btnPredPoint.classList.add('active');
             const hours = state.predictionHours || 1.0;
             await executePrediction(hours, true);
+        });
+    }
+
+    // BeiDou Satellite Map Layer Toggle (NASA Blue Marble vs BeiDou-3 Satellite Map)
+    const btnToggleBeidouMap = document.getElementById('btn-toggle-beidou-map');
+    if (btnToggleBeidouMap) {
+        btnToggleBeidouMap.addEventListener('click', () => {
+            const nextLayer = (scene.currentEarthMapLayer === 'BEIDOU') ? 'NASA' : 'BEIDOU';
+            scene.setEarthMapLayer(nextLayer);
+            btnToggleBeidouMap.classList.toggle('beidou-active', nextLayer === 'BEIDOU');
+            btnToggleBeidouMap.textContent = nextLayer === 'BEIDOU' ? '🗺️ 北斗遥感底图 (激活)' : '🗺️ 北斗遥感底图';
+        });
+    }
+
+    // BeiDou 3D Regional Real-Time Satellite Imagery System
+    const modalBeidouVision = document.getElementById('modal-beidou-vision');
+    const btnBeidouVision = document.getElementById('btn-beidou-vision');
+    const beidouImgView = document.getElementById('beidou-imagery-view');
+    const beidouHudTl = document.getElementById('beidou-hud-tag-tl');
+    const beidouHudBr = document.getElementById('beidou-hud-tag-br');
+    const beidouSpecRegion = document.getElementById('beidou-spec-region');
+    const beidouSpecCoords = document.getElementById('beidou-spec-coords');
+    const beidouSpecGsd = document.getElementById('beidou-spec-gsd');
+    const beidouSpecSwath = document.getElementById('beidou-spec-swath');
+    const beidouSpecSza = document.getElementById('beidou-spec-sza');
+    const beidouSpecCloud = document.getElementById('beidou-spec-cloud');
+    const beidouSensorMode = document.getElementById('beidou-sensor-mode');
+    const btnBeidouFly = document.getElementById('btn-beidou-fly-region');
+
+    const beidouRegions = {
+        beijing: {
+            name: '华北 / 北京国家航天中控区域',
+            coords: '39.9042°N, 116.4074°E',
+            lat: 39.9042, lon: 116.4074,
+            gsd: '0.50 米 (全色谱融合正射)',
+            swath: '60.0 km (推扫式光学)',
+            sza: '38.4° (日照优良)',
+            cloud: '< 3.0% (晴空无遮挡)',
+            sensor: '光学高分-1型 (0.5m)',
+            image: 'textures/beidou_regional_beijing.jpg',
+            tl: 'BEIDOU-3 OPTICAL SWATH<br>RES: 0.50m GSD | BAND: RGB PAN-SHARPENED',
+            br: 'TARGET: BEIJING AEROSPACE CENTER<br>LAT: 39.90°N | LON: 116.40°E | ELEV: +48.9°'
+        },
+        sanya: {
+            name: '南海 / 三亚测控与深水港海域',
+            coords: '18.2528°N, 109.5120°E',
+            lat: 18.2528, lon: 109.5120,
+            gsd: '0.60 米 (高分多光谱水文)',
+            swath: '75.0 km (离岸海洋宽幅)',
+            sza: '24.1° (近天顶角正射)',
+            cloud: '< 5.0% (热带海面晴空)',
+            sensor: '多光谱水文-2型 (0.6m)',
+            image: 'textures/beidou_regional_sanya.jpg',
+            tl: 'BEIDOU-3 MARITIME SWATH<br>RES: 0.60m GSD | BAND: COASTAL AEROSOL / BLUE-GREEN',
+            br: 'TARGET: SANYA DEEP WATER PORT<br>LAT: 18.25°N | LON: 109.51°E | SEA BATHYMETRY'
+        },
+        kashi: {
+            name: '西部 / 喀什深空测控基地与帕米尔高原',
+            coords: '39.4704°N, 75.9938°E',
+            lat: 39.4704, lon: 75.9938,
+            gsd: '0.70 米 (高原地质雷达光学叠加)',
+            swath: '90.0 km (深空测控区广域)',
+            sza: '42.6° (西域低俯角斜照)',
+            cloud: '< 1.0% (极干燥高通透)',
+            sensor: '地形多光谱-3型 (0.7m)',
+            image: 'textures/beidou_regional_kashi.jpg',
+            tl: 'BEIDOU-3 TERRAIN SWATH<br>RES: 0.70m GSD | BAND: NIR / RED-EDGE GEOMORPHOLOGY',
+            br: 'TARGET: KASHI DEEP SPACE DISH COMPLEX<br>LAT: 39.47°N | LON: 75.99°E | PAMIR BASIN'
+        },
+        nadir: {
+            name: '当前卫星星下点实时光学扫描',
+            coords: '动态计算中...',
+            lat: 0.0, lon: 0.0,
+            gsd: '0.50 米 (星下点垂直俯视)',
+            swath: '65.0 km (实况实时推扫)',
+            sza: '30.0°',
+            cloud: '< 4.0%',
+            sensor: '星载CMOS面阵遥感器',
+            image: 'textures/beidou_regional_beijing.jpg',
+            tl: 'BEIDOU-3 NADIR LIVE SWATH<br>RES: 0.50m GSD | REAL-TIME PUSH-BROOM',
+            br: 'TARGET: SUB-SATELLITE GROUND TRACK'
+        }
+    };
+
+    let activeBeidouRegion = 'beijing';
+
+    function setBeidouRegion(regionKey) {
+        activeBeidouRegion = regionKey;
+        document.querySelectorAll('.beidou-region-btn').forEach(b => {
+            b.classList.toggle('active', b.getAttribute('data-region') === regionKey);
+        });
+
+        const r = beidouRegions[regionKey];
+        if (!r) return;
+
+        if (regionKey === 'nadir' && state.trajectoryData && state.trajectoryData.geodetic) {
+            const geo = state.trajectoryData.geodetic[0] || [39.9, 116.4, 400000];
+            r.lat = geo[0];
+            r.lon = geo[1];
+            r.coords = `${Math.abs(geo[0]).toFixed(2)}°${geo[0]>=0?'N':'S'}, ${Math.abs(geo[1]).toFixed(2)}°${geo[1]>=0?'E':'W'}`;
+            r.name = `当前星下点实况 (${(geo[2]/1000).toFixed(1)} km 轨道高)`;
+            r.br = `TARGET: LIVE NADIR TRACK<br>LAT: ${geo[0].toFixed(2)}° | LON: ${geo[1].toFixed(2)}°`;
+        }
+
+        if (beidouImgView) beidouImgView.src = r.image;
+        if (beidouHudTl) beidouHudTl.innerHTML = r.tl;
+        if (beidouHudBr) beidouHudBr.innerHTML = r.br;
+        if (beidouSpecRegion) beidouSpecRegion.textContent = r.name;
+        if (beidouSpecCoords) beidouSpecCoords.textContent = r.coords;
+        if (beidouSpecGsd) beidouSpecGsd.textContent = r.gsd;
+        if (beidouSpecSwath) beidouSpecSwath.textContent = r.swath;
+        if (beidouSpecSza) beidouSpecSza.textContent = r.sza;
+        if (beidouSpecCloud) beidouSpecCloud.textContent = r.cloud;
+        if (beidouSensorMode) beidouSensorMode.textContent = r.sensor;
+    }
+
+    if (btnBeidouVision && modalBeidouVision) {
+        btnBeidouVision.addEventListener('click', () => {
+            modalBeidouVision.style.display = 'block';
+            setBeidouRegion(activeBeidouRegion);
+        });
+    }
+
+    document.querySelectorAll('.beidou-region-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const reg = btn.getAttribute('data-region');
+            setBeidouRegion(reg);
+        });
+    });
+
+    if (btnBeidouFly) {
+        btnBeidouFly.addEventListener('click', () => {
+            const r = beidouRegions[activeBeidouRegion];
+            if (r && scene.flyToRegion) {
+                scene.flyToRegion(r.lat, r.lon);
+                modalBeidouVision.style.display = 'none';
+            }
         });
     }
 

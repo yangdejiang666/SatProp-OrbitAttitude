@@ -347,16 +347,18 @@ def predict_future_state():
     """
     高精度未来时序轨道外推与定点瞬时状态预测接口:
     给定目标星与未来预测时距 (1h, 5h, 10h, 24h, 72h 等)，
-    计算并返回未来整段预测轨迹弧段，以及在未来那个确切时刻点的空间状态与姿态。
+    同时推演基准轨道 (Nominal Orbit) 与高精摄动偏移轨道 (Offset Orbit)，
+    计算卫星在未来确切时刻在偏移轨道上的具体方位、空间偏距矢量 (RIC: 径向/沿轨/法向)、
+    以及地球自转方位 (GMST) 与星载姿态闭环。
     """
     import math
     from datetime import timedelta
-    from core.time_systems import jd_to_datetime
+    from core.time_systems import jd_to_datetime, gmst_rad
     from core.kepler import rv_to_coe
-    from core.perturbations import sun_position_eci
+    from core.perturbations import sun_position_eci, moon_position_eci
     from attitude.quaternions import quat_to_euler
     from analysis.visibility import DEFAULT_GROUND_STATIONS
-    from core.coordinates import ecef_to_topocentric_sez, sez_to_aer
+    from core.coordinates import ecef_to_topocentric_sez, sez_to_aer, compute_ric_errors
 
     data = request.get_json(force=True) if request.data else {}
     sat_id = data.get("sat_id", "tiangong")
@@ -370,35 +372,70 @@ def predict_future_state():
     sat_entry = data_manager.satellites[sat_id]
     sgp4_prop: SGP4Propagator = sat_entry["propagator"]
     epoch_jd = sgp4_prop.epoch_jd
+    y0_eci = sgp4_prop.get_initial_state_eci()
 
     t_span_seconds = max(60.0, delta_hours * 3600.0)
-    n_pts = min(360, max(120, int(delta_hours * 30)))
+    n_pts = min(240, max(80, int(delta_hours * 15)))
     dt_step = t_span_seconds / float(n_pts)
 
-    # 1. 轨道预测积分运算
-    orbit_res = sgp4_prop.propagate(t_span_seconds, dt_step, epoch_jd)
+    # 1. 基准轨道外推 (Nominal Orbit - SGP4 Reference)
+    sgp4_res = sgp4_prop.propagate(t_span_seconds, dt_step, epoch_jd)
+
+    # 2. 摄动偏移轨道积分运算 (Offset Perturbed Orbit - Cowell RKF78)
+    is_leo = sat_id.lower() not in ["beidou_m1", "beidou_g1", "beidou_i1", "beidou"]
+    mass_kg = 22500.0 if "tiangong" in sat_id else (420000.0 if "iss" in sat_id else 1200.0)
+    cowell = CowellPropagator(
+        integrator="RKF78",
+        tol=1e-7,
+        use_j2=True,
+        use_j3=True,
+        use_j4=True,
+        use_drag=is_leo,
+        use_sun=True,
+        use_moon=True,
+        use_srp=not is_leo,
+        mass_kg=mass_kg
+    )
+    offset_res = cowell.propagate(t_span_seconds, dt_step, epoch_jd, initial_state_eci=y0_eci)
 
     target_idx = -1
-    t_target_s = float(orbit_res["times_s"][target_idx])
-    target_jd = float(orbit_res["jds"][target_idx])
-    r_target_eci = orbit_res["states_eci"][target_idx, 0:3]
-    v_target_eci = orbit_res["states_eci"][target_idx, 3:6]
-    r_target_ecef = orbit_res["states_ecef"][target_idx, 0:3]
-    v_target_ecef = orbit_res["states_ecef"][target_idx, 3:6]
-    lat, lon, alt_m = orbit_res["geodetic"][target_idx]
+    t_target_s = float(offset_res["times_s"][target_idx])
+    target_jd = float(offset_res["jds"][target_idx])
+    
+    # 卫星最终在偏移轨道上的确切方位 (Offset Target)
+    r_target_eci = offset_res["states_eci"][target_idx, 0:3]
+    v_target_eci = offset_res["states_eci"][target_idx, 3:6]
+    r_target_ecef = offset_res["states_ecef"][target_idx, 0:3]
+    v_target_ecef = offset_res["states_ecef"][target_idx, 3:6]
+    lat_off, lon_off, alt_m_off = offset_res["geodetic"][target_idx]
+
+    # 基准轨道末端位置 (Nominal Target)
+    r_nom_eci = sgp4_res["states_eci"][target_idx, 0:3]
+    v_nom_eci = sgp4_res["states_eci"][target_idx, 3:6]
+    r_nom_ecef = sgp4_res["states_ecef"][target_idx, 0:3]
+    lat_nom, lon_nom, alt_m_nom = sgp4_res["geodetic"][target_idx]
+
+    # 3. 空间摄动偏移分解 (RIC: 径向 / 沿轨 / 法向)
+    ric_dict = compute_ric_errors(r_target_eci, v_target_eci, r_nom_eci, v_nom_eci)
+    spatial_drift_vec = r_target_eci - r_nom_eci
+    total_drift_m = float(np.linalg.norm(spatial_drift_vec))
+    total_drift_km = total_drift_m / 1000.0
 
     target_dt_utc = jd_to_datetime(target_jd)
     target_dt_cst = target_dt_utc + timedelta(hours=8)
     beijing_time_str = target_dt_cst.strftime("%Y-%m-%d %H:%M:%S CST")
     utc_time_str = target_dt_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
     target_mjd = target_jd - 2400000.5
+    target_gmst_rad = gmst_rad(target_jd)
+    target_gmst_deg = math.degrees(target_gmst_rad) % 360.0
 
-    # 2. 开普勒六根数计算
+    # 4. 开普勒六根数计算 (偏移轨道瞬时根数)
     target_coe = rv_to_coe(r_target_eci, v_target_eci)
 
-    # 3. 姿态动力学与四元数解算
+    # 5. 姿态动力学与四元数解算
     sim = AttitudeSimulator()
     r_sun_eci = sun_position_eci(target_jd)
+    r_moon_eci = moon_position_eci(target_jd)
 
     if attitude_mode == "SUN":
         quat_target = sim.compute_sun_target_quat(r_sun_eci)
@@ -423,7 +460,7 @@ def predict_future_state():
         float(yaw_disp * 0.008)
     ]
 
-    # 4. 地面站拓扑 AER 解算
+    # 6. 地面站拓扑 AER 解算 (针对未来偏移轨道实际星下点)
     station_list = []
     active_station = None
     max_el = -90.0
@@ -444,7 +481,7 @@ def predict_future_state():
             if is_vis:
                 active_station = st_obj
 
-    # 5. 空间能源与星载遥测
+    # 7. 空间能源与星载遥测
     sun_dist = np.linalg.norm(r_sun_eci)
     sun_dir = r_sun_eci / sun_dist
     dot_sun = np.dot(r_target_eci, sun_dir)
@@ -456,8 +493,8 @@ def predict_future_state():
     wheel_rpm = int(2450 + 35 * math.sin(nu_rad * 2))
     thermal_c = round(18.5 + 0.6 * math.sin(nu_rad), 1)
 
-    alt_km = float(alt_m / 1000.0)
-    vel_kms = float(np.linalg.norm(v_target_eci) / 1000.0)
+    alt_km_off = float(alt_m_off / 1000.0)
+    vel_kms_off = float(np.linalg.norm(v_target_eci) / 1000.0)
 
     return jsonify({
         "status": "success",
@@ -468,15 +505,16 @@ def predict_future_state():
             "time_offset_s": t_target_s,
             "target_jd": float(target_jd),
             "target_mjd": float(target_mjd),
+            "target_gmst_deg": round(float(target_gmst_deg), 4),
             "beijing_time": beijing_time_str,
             "utc_time": utc_time_str,
             "state_eci": [float(v) for v in np.concatenate([r_target_eci, v_target_eci])],
             "state_ecef": [float(v) for v in np.concatenate([r_target_ecef, v_target_ecef])],
-            "geodetic": [float(lat), float(lon), float(alt_m)],
-            "alt_km": round(alt_km, 2),
-            "vel_kms": round(vel_kms, 3),
-            "lat_str": f"{abs(lat):.2f}°{'N' if lat>=0 else 'S'}",
-            "lon_str": f"{abs(lon):.2f}°{'E' if lon>=0 else 'W'}",
+            "geodetic": [float(lat_off), float(lon_off), float(alt_m_off)],
+            "alt_km": round(alt_km_off, 2),
+            "vel_kms": round(vel_kms_off, 3),
+            "lat_str": f"{abs(lat_off):.2f}°{'N' if lat_off>=0 else 'S'}",
+            "lon_str": f"{abs(lon_off):.2f}°{'E' if lon_off>=0 else 'W'}",
             "coe": target_coe,
             "attitude": {
                 "quaternion": [float(q) for q in quat_target],
@@ -498,7 +536,24 @@ def predict_future_state():
                 "thermal_c": thermal_c,
             },
         },
-        "orbit_arc_eci": orbit_res["states_eci"][:, 0:3].tolist(),
+        "nominal_target": {
+            "state_eci": [float(v) for v in np.concatenate([r_nom_eci, v_nom_eci])],
+            "state_ecef": [float(v) for v in np.concatenate([r_nom_ecef, [0, 0, 0]])],
+            "geodetic": [float(lat_nom), float(lon_nom), float(alt_m_nom)],
+            "alt_km": round(float(alt_m_nom / 1000.0), 2),
+            "lat_str": f"{abs(lat_nom):.2f}°{'N' if lat_nom>=0 else 'S'}",
+            "lon_str": f"{abs(lon_nom):.2f}°{'E' if lon_nom>=0 else 'W'}",
+        },
+        "drift_metrics": {
+            "dr_radial_m": round(float(ric_dict["dr_radial"]), 2),
+            "dr_in_track_m": round(float(ric_dict["dr_in_track"]), 2),
+            "dr_cross_track_m": round(float(ric_dict["dr_cross_track"]), 2),
+            "total_drift_m": round(total_drift_m, 2),
+            "total_drift_km": round(total_drift_km, 3),
+        },
+        "nominal_orbit_arc_eci": sgp4_res["states_eci"][:, 0:3].tolist(),
+        "offset_orbit_arc_eci": offset_res["states_eci"][:, 0:3].tolist(),
+        "orbit_arc_eci": offset_res["states_eci"][:, 0:3].tolist(),
     })
 
 
