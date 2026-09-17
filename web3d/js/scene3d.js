@@ -1948,14 +1948,17 @@ class SpaceScene {
             depthWrite: false
         });
 
+        // Collect meshes first to avoid mutating children during tree traversal (prevents RangeError)
+        const meshes = [];
         tempGroup.traverse((child) => {
             if (child.isMesh) {
-                child.material = ghostMat;
-                child.renderOrder = 10;
-                const wire = new THREE.Mesh(child.geometry, wireMat);
-                wire.renderOrder = 11;
-                child.add(wire);
+                meshes.push(child);
             }
+        });
+
+        meshes.forEach((m) => {
+            m.material = ghostMat;
+            m.renderOrder = 10;
         });
 
         this.ghostSatBodyGroup.add(tempGroup);
