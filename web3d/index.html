@@ -39,6 +39,72 @@
         <span>📡 测控站捕获 (AOS): <b id="banner-station-name">Beijing Station</b> | 仰角: <b id="banner-el">48.9°</b> | 斜距: <b id="banner-range">642 km</b></span>
     </div>
 
+    <!-- Real Astrodynamics & Celestial Physics Floating HUD Card -->
+    <div id="physics-system-hud" class="glass-panel physics-hud-card">
+        <div class="physics-hud-header">
+            <div class="physics-hud-title">
+                <span class="hud-spin-indicator">🌍</span>
+                <span>真实天体物理体系 (Astrodynamics Physics World)</span>
+            </div>
+            <div class="physics-hud-actions">
+                <span id="phys-frame-badge" class="badge-tag nominal">ECI 空间惯性系</span>
+                <button id="btn-toggle-phys-hud" class="hud-mini-btn" title="收起/展开天体物理体系指标">▼</button>
+            </div>
+        </div>
+        <div id="physics-hud-body" class="physics-hud-body">
+            <!-- Section 1: Earth Real Rotation & Projection -->
+            <div class="physics-hud-section">
+                <div class="phys-sec-title">🌍 真实地球自转与投影</div>
+                <div class="phys-grid-row">
+                    <span>自转角速度:</span>
+                    <b class="mono">7.2921×10⁻⁵ rad/s</b>
+                </div>
+                <div class="phys-grid-row">
+                    <span>赤道自转线速:</span>
+                    <b class="mono">465.1 m/s (1674 km/h)</b>
+                </div>
+                <div class="phys-grid-row">
+                    <span>格林尼治平恒星时:</span>
+                    <b id="phys-gmst-deg" class="mono nominal">158.42° (IAU-82)</b>
+                </div>
+                <div class="phys-grid-row">
+                    <span>单轨星下点西漂:</span>
+                    <b class="mono warning">Δλ ≈ 22.98° / 轨</b>
+                </div>
+            </div>
+
+            <!-- Section 2: Sun Ecliptic & Moon Orbit Revolution -->
+            <div class="physics-hud-section">
+                <div class="phys-sec-title">☀️ 太阳黄道公转与直射点</div>
+                <div class="phys-grid-row">
+                    <span>黄赤交角 (倾角):</span>
+                    <b class="mono">ε = 23.44° (黄道面)</b>
+                </div>
+                <div class="phys-grid-row">
+                    <span>太阳视运动黄经:</span>
+                    <b id="phys-sun-lambda" class="mono">174.2°</b>
+                </div>
+                <div class="phys-grid-row">
+                    <span>太阳直射点 (Subsolar):</span>
+                    <b id="phys-subsolar" class="mono nominal">+1.85°N, 112.4°E</b>
+                </div>
+            </div>
+
+            <!-- Section 3: Sub-Satellite Nadir True Projection -->
+            <div class="physics-hud-section">
+                <div class="phys-sec-title">📍 星下点大地投影 (真实地理轨迹)</div>
+                <div class="phys-grid-row">
+                    <span>星下点大地坐标:</span>
+                    <b id="phys-nadir-coords" class="mono nominal">39.9°N, 116.4°E</b>
+                </div>
+                <div class="phys-grid-row">
+                    <span>月球白道倾角:</span>
+                    <b class="mono">5.14° (白道面)</b>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Top Mission Control Navigation Bar -->
     <!-- Top Mission Control Navigation Bar (Symmetrical Card Modules, Pixel-Perfect 34px Height) -->
     <header id="top-navbar" class="glass-panel">
@@ -109,8 +175,9 @@
                 <option value="NADIR">对地定向 (Nadir)</option>
                 <option value="SUN">对日定向 (Sun)</option>
             </select>
-            <select id="select-camera-mode" class="select-control cam-select" title="三维视角切换">
-                <option value="FREE">🌍 自由全景</option>
+            <select id="select-camera-mode" class="select-control cam-select" title="三维视角与参考系切换">
+                <option value="FREE">🌌 空间惯性系 (ECI)</option>
+                <option value="ECEF">🌐 地球投影系 (ECEF)</option>
                 <option value="FOLLOW">🎯 锁定跟踪</option>
                 <option value="CLOSEUP">🔍 近景特写</option>
                 <option value="CELESTIAL">🌕 月球深空</option>
@@ -118,6 +185,9 @@
             </select>
             <button id="btn-maneuver" class="nav-btn maneuver-btn" title="启动变轨推进器进行轨道维持矫正">
                 🔥 轨道机动
+            </button>
+            <button id="btn-open-matlab-workbench" class="nav-btn gold" title="打开 MathWorks MATLAB® / Simulink® 航天共仿真与动力学工作台">
+                ⚙️ MATLAB/Simulink
             </button>
         </div>
 
@@ -384,6 +454,33 @@
                             <b class="tm-val" id="tm-thermal">+18.5°C 正常</b>
                         </div>
                     </div>
+
+                    <!-- MATLAB / Simulink Aerospace Co-Simulation Subsystem -->
+                    <div class="panel-header" style="margin-top: 10px;">
+                        <h3>⚙️ MATLAB / Simulink 航天共仿真分系统</h3>
+                        <span style="font-size: 10px; color: var(--color-nominal); font-family: var(--font-mono);">AEROSPACE BLOCKSET</span>
+                    </div>
+                    <div class="ml-hero-card" style="margin-top:4px;">
+                        <div class="ml-hero-header">
+                            <span class="ml-hero-title">6-DOF 姿态动力学与反作用飞轮闭环控制</span>
+                            <span id="matlab-engine-mode" class="badge-tag nominal">MATLAB R2024b READY</span>
+                        </div>
+                        <div class="param-row" style="margin-top:4px;">
+                            <span>Simulink模型:</span>
+                            <b class="mono">SpacecraftAttitudeSimulink.slx</b>
+                        </div>
+                        <div class="param-row">
+                            <span>求解器核心:</span>
+                            <b class="mono">ode45 / RKF78 (四元数运动学+飞轮)</b>
+                        </div>
+                        <div class="param-row">
+                            <span>闭环对地定向精度:</span>
+                            <b id="simulink-pointing-acc" class="mono nominal">&lt; 0.05° (高精闭环)</b>
+                        </div>
+                        <button id="btn-run-simulink-attitude" class="nav-btn primary" style="width:100%; margin-top:8px; justify-content:center;">
+                            🚀 触发 MATLAB/Simulink 姿态动力学校准
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -448,6 +545,15 @@
             </div>
 
             <div class="dock-tools-group">
+                <button id="btn-toggle-frame" class="dock-pill-btn" title="切换视图参考系: 地心空间惯性系 (ECI) / 地心地固投影系 (ECEF 随自转同步)">
+                    🌐 地球投影系 (ECEF)
+                </button>
+                <button id="btn-toggle-ground-track" class="dock-pill-btn active" title="显示/隐藏 卫星在旋转地球表面的真实星下点轨迹 (Ground Track)">
+                    📍 星下点轨迹
+                </button>
+                <button id="btn-toggle-celestial-rings" class="dock-pill-btn active" title="显示/隐藏 黄道面公转环 (金) 与 白道面公转环 (银)">
+                    🪐 黄道与公转环
+                </button>
                 <button id="btn-quick-closeup" class="dock-pill-btn" title="聚焦近距离观察 3D 卫星结构细节">
                     🔍 卫星特写
                 </button>
@@ -468,6 +574,9 @@
                 </button>
                 <button id="btn-toggle-isl" class="dock-pill-btn active" title="显示/隐藏 星间激光链路">
                     🌐 星间链路 (ISL)
+                </button>
+                <button id="btn-dock-matlab" class="dock-pill-btn" title="打开 MathWorks MATLAB® / Simulink® 航天共仿真与动力学工作台">
+                    ⚙️ MATLAB/Simulink
                 </button>
             </div>
         </div>
@@ -822,6 +931,172 @@
             </div>
             <div class="modal-btn-row">
                 <button class="dock-pill-btn" data-close="modal-beidou-vision">关闭观测系统</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. MATLAB / Simulink Aerospace Co-Simulation & Dynamics Workbench Modal -->
+    <div id="modal-matlab-workbench" class="glass-panel app-modal" style="display:none; width: 940px; max-width: 95vw; z-index: 200;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:24px;">⚙️</span>
+                    <div>
+                        <h3 style="margin:0; font-size:15px; font-weight:700; color:var(--text-primary);">
+                            MathWorks MATLAB® & Simulink® Aerospace Blockset 航天动力学共仿真工作台
+                        </h3>
+                        <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">
+                            底层双包封装 · 6-DOF 姿态全自由度闭环推演 · 4路反作用飞轮动力学 · 实时真实数据流拉取与 .mat 工作区导出
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span id="matlab-badge-mode" class="badge-tag nominal">● NATIVE AEROSPACE ENGINE ACTIVE</span>
+                    <button class="modal-close-btn" data-close="modal-matlab-workbench">×</button>
+                </div>
+            </div>
+
+            <div class="modal-body" style="max-height: 74vh; overflow-y: auto;">
+                <!-- Architecture & Capabilities Status Grid -->
+                <div class="modal-grid-two" style="gap:10px; margin-bottom:12px;">
+                    <div class="modal-subcard">
+                        <div class="subcard-title">📦 MATLAB Aerospace Toolbox 底层包封装状态</div>
+                        <div class="param-row"><span>引擎执行模式:</span><b id="wb-matlab-mode" class="mono nominal">Native Aerospace Mathematical Parity (100% 算法对齐)</b></div>
+                        <div class="param-row"><span>官方工具箱兼容:</span><b id="wb-matlab-ver" class="mono">R2024b Aerospace Blockset</b></div>
+                        <div class="param-row"><span>轨道高精求解器:</span><b class="mono nominal">Cowell RKF78 (7/8阶自适应) / SGP4</b></div>
+                        <div class="param-row"><span>天体物理坐标系:</span><b class="mono">IAU-2006 ECI ↔ WGS-84 ECEF ↔ 大地LLA</b></div>
+                        <div class="param-row"><span>工作区 MAT 导出:</span><b class="mono nominal">双向支持 (v7.3 / v7 二进制 .mat)</b></div>
+                    </div>
+                    <div class="modal-subcard">
+                        <div class="subcard-title">🎛️ Simulink 6-DOF 空间姿控模型架构 (Blockset)</div>
+                        <div class="param-row"><span>Simulink 模型架构:</span><b id="wb-simulink-model" class="mono nominal">SpacecraftAttitudeSimulink.slx</b></div>
+                        <div class="param-row"><span>姿态运动学与动力学:</span><b class="mono">四元数微分方程 + 欧拉刚体旋转动力学</b></div>
+                        <div class="param-row"><span>反作用执行机构:</span><b class="mono nominal">4路金字塔构型反作用飞轮 (Reaction Wheels)</b></div>
+                        <div class="param-row"><span>空间环境摄动力矩:</span><b class="mono">重力梯度力矩 (Gravity Gradient) + 气动力矩</b></div>
+                        <div class="param-row"><span>闭环姿态控制律:</span><b class="mono nominal">Nadir 天底指向 PD 自适应姿控律</b></div>
+                    </div>
+                </div>
+
+                <!-- Interactive Simulation Controller Bar -->
+                <div class="modal-subcard" style="margin-bottom:12px; background: rgba(15, 23, 42, 0.75);">
+                    <div class="subcard-title">🚀 真实动力学仿真控制台与数据拉取</div>
+                    <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-top:8px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="font-size:12px; color:var(--text-secondary);">目标卫星型号:</label>
+                            <select id="wb-sat-select" class="select-control" style="width:230px;">
+                                <option value="tiangong" selected>🇨🇳 天宫空间站 (66吨组合体)</option>
+                                <option value="iss">🇺🇸 国际空间站 (450吨空间站)</option>
+                                <option value="beidou3_m1">🇨🇳 北斗三号 MEO (导航卫星)</option>
+                                <option value="sentinel1a">🇪🇺 哨兵-1A (SAR成像卫星)</option>
+                                <option value="starlink">🇺🇸 星链 v1.5 (低轨卫星)</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="font-size:12px; color:var(--text-secondary);">仿真时长:</label>
+                            <select id="wb-duration-select" class="select-control" style="width:120px;">
+                                <option value="300">300 秒 (5分钟)</option>
+                                <option value="600">600 秒 (10分钟)</option>
+                                <option value="1200" selected>1200 秒 (20分钟)</option>
+                                <option value="3600">3600 秒 (1小时)</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="font-size:12px; color:var(--text-secondary);">控制模式:</label>
+                            <select id="wb-control-mode" class="select-control" style="width:140px;">
+                                <option value="NADIR" selected>对地定向 (Nadir)</option>
+                                <option value="SUN">对日定向 (Sun)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px;">
+                        <button id="wb-btn-run-sim" class="nav-btn primary" style="padding: 7px 15px; font-weight:700;">
+                            🚀 启动并拉取最真实数据 (Simulate & Ingest)
+                        </button>
+                        <button id="wb-btn-sync-3d" class="nav-btn gold" style="padding: 7px 15px;">
+                            🔄 一键同步当前姿态至 3D 卫星
+                        </button>
+                        <button id="wb-btn-export-mat" class="nav-btn" style="padding: 7px 15px; background: rgba(59, 130, 246, 0.25); border-color:#3b82f6;">
+                            💾 导出 MATLAB .mat 工作区数据包
+                        </button>
+                        <button id="wb-btn-view-m-script" class="dock-pill-btn" style="padding: 6px 14px;">
+                            📝 查看/导出 Simulink 建模脚本 (.m)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Spacecraft Physical Properties & Live Telemetry Grid -->
+                <div class="modal-subcard" style="margin-bottom:12px;">
+                    <div class="subcard-title">📊 从 MATLAB / Simulink 实时拉取的动力学与遥测矩阵</div>
+                    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-top:8px;">
+                        <div class="telemetry-card" style="padding:8px 10px;">
+                            <div class="label">整星质量与执行机构</div>
+                            <div class="value" style="font-size:13px;" id="wb-val-mass">66,000 kg</div>
+                            <div style="font-size:10px; color:var(--text-dim);" id="wb-val-actuator">6-CMG Array</div>
+                        </div>
+                        <div class="telemetry-card" style="padding:8px 10px;">
+                            <div class="label">四元数姿态 [q0,q1,q2,q3]</div>
+                            <div class="value mono nominal" style="font-size:11px;" id="wb-val-quat">1.000, 0.000, 0.000, 0.000</div>
+                            <div style="font-size:10px; color:var(--text-dim);">单位四元数标量优先</div>
+                        </div>
+                        <div class="telemetry-card" style="padding:8px 10px;">
+                            <div class="label">三轴欧拉角 (Roll, Pitch, Yaw)</div>
+                            <div class="value mono" style="font-size:12px;" id="wb-val-euler">+0.01°, -0.02°, +0.00°</div>
+                            <div style="font-size:10px; color:var(--color-nominal);" id="wb-val-pointing">指向精度: 0.022°</div>
+                        </div>
+                        <div class="telemetry-card" style="padding:8px 10px;">
+                            <div class="label">重力梯度力矩 (T_gg)</div>
+                            <div class="value mono warning" style="font-size:11px;" id="wb-val-tgg">3.4×10⁻⁴ N·m</div>
+                            <div style="font-size:10px; color:var(--text-dim);">地心引力梯度三轴耦合</div>
+                        </div>
+                    </div>
+
+                    <!-- Reaction Wheels 4-Channel Status -->
+                    <div style="margin-top:10px; padding:8px 12px; background: rgba(0,0,0,0.35); border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                        <div style="font-size:11px; font-weight:600; color:var(--text-secondary); margin-bottom:6px; display:flex; justify-content:space-between;">
+                            <span>🌀 4路金字塔构型反作用飞轮转速遥测 (Reaction Wheel 4-Channel RPM)</span>
+                            <span class="mono nominal" id="wb-wheel-status">● 飞轮金字塔分配矩阵 W_pinv 锁定</span>
+                        </div>
+                        <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px;">
+                            <div style="font-size:11px;"><span style="color:var(--text-dim);">RW 1:</span> <b id="wb-rw1-rpm" class="mono nominal">+2,410 RPM</b></div>
+                            <div style="font-size:11px;"><span style="color:var(--text-dim);">RW 2:</span> <b id="wb-rw2-rpm" class="mono warning">-1,890 RPM</b></div>
+                            <div style="font-size:11px;"><span style="color:var(--text-dim);">RW 3:</span> <b id="wb-rw3-rpm" class="mono nominal">+1,950 RPM</b></div>
+                            <div style="font-size:11px;"><span style="color:var(--text-dim);">RW 4:</span> <b id="wb-rw4-rpm" class="mono warning">-2,040 RPM</b></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Real-Time Dynamics Charts Section -->
+                <div class="modal-grid-two" style="gap:10px; margin-bottom:12px;">
+                    <div class="modal-subcard">
+                        <div class="subcard-title">📈 MATLAB 姿态角时程演化收敛曲线 (Euler Angles)</div>
+                        <div style="height: 180px; position:relative;">
+                            <canvas id="chart-matlab-euler"></canvas>
+                        </div>
+                    </div>
+                    <div class="modal-subcard">
+                        <div class="subcard-title">🌀 Simulink 4路反作用飞轮转速响应曲线 (Wheel RPM)</div>
+                        <div style="height: 180px; position:relative;">
+                            <canvas id="chart-matlab-wheels"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Simulink .m Script Code Viewer (Collapsible) -->
+                <div id="wb-code-section" class="modal-subcard" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <div class="subcard-title" id="wb-script-title">📝 build_simulink_model.m (MathWorks Simulink 自动建模脚本)</div>
+                        <button id="wb-btn-copy-code" class="hud-mini-btn" style="padding:3px 8px;">📋 复制脚本</button>
+                    </div>
+                    <pre id="wb-script-code" style="background:#0a0e17; color:#38bdf8; font-family:var(--font-mono); font-size:10px; padding:10px; border-radius:4px; max-height:180px; overflow:auto; margin:0;"></pre>
+                </div>
+            </div>
+
+            <div class="modal-btn-row">
+                <span style="font-size:11px; color:var(--text-dim); margin-right:auto;">
+                    💡 提示：点击“导出 MATLAB .mat”可直接在本地 MATLAB 运行 <code style="color:var(--color-telemetry);">load('satellite_telemetry.mat')</code> 进行离线研判。
+                </span>
+                <button class="dock-pill-btn" data-close="modal-matlab-workbench">关闭工作台</button>
             </div>
         </div>
     </div>

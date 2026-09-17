@@ -1759,3 +1759,133 @@ body {
   box-shadow: 0 4px 20px rgba(56, 189, 248, 0.6);
   transform: translateY(-1px);
 }
+
+/* Real Astrodynamics & Celestial Physics Floating HUD Card */
+.physics-hud-card {
+  position: absolute;
+  top: 50px;
+  right: 18px;
+  width: 320px;
+  max-width: 90vw;
+  background: rgba(11, 19, 41, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  z-index: 45;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 20px rgba(56, 189, 248, 0.15);
+  transition: all 0.3s ease;
+}
+
+.physics-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.physics-hud-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: 0.2px;
+}
+
+.hud-spin-indicator {
+  display: inline-block;
+  animation: spinSlow 30s linear infinite;
+}
+
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.physics-hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-mini-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  border-radius: 3px;
+  font-size: 10px;
+  padding: 1px 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.hud-mini-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+}
+
+.physics-hud-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.physics-hud-section {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+}
+
+.phys-sec-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.phys-grid-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.phys-grid-row b {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* ==========================================================================
+   MathWorks MATLAB & Simulink Aerospace Workbench Modal Styles
+   ========================================================================== */
+#modal-matlab-workbench {
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.88), 0 0 35px rgba(245, 158, 11, 0.12);
+}
+
+#modal-matlab-workbench .modal-header {
+  border-bottom: 1px solid rgba(245, 158, 11, 0.22);
+}
+
+#modal-matlab-workbench .badge-tag.nominal {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+}
+
+#wb-script-code::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+#wb-script-code::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+

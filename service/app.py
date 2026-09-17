@@ -27,6 +27,7 @@ from service.data_manager import SatelliteDataManager
 from propagators.unified_predictor import UnifiedOrbitPredictor
 from service.telemetry_interface import global_telemetry_manager
 from core.celestial import get_full_celestial_system
+from matlab_bridge import get_matlab_engine, get_simulink_bridge
 
 WEB3D_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web3d"))
 
@@ -90,6 +91,141 @@ def get_celestial_ephemeris():
     time_str = request.args.get("time") or (request.get_json(silent=True) or {}).get("time")
     data = get_full_celestial_system(time_str)
     return jsonify(data)
+
+
+@app.route("/api/matlab/status", methods=["GET"])
+def get_matlab_status():
+    """Returns status of MATLAB Engine and Simulink Co-Simulation Bridge."""
+    from matlab_bridge.simulink_bridge import SpacecraftPhysicalDatabase
+    eng = get_matlab_engine()
+    status = eng.get_status()
+    status["simulink_model"] = "SpacecraftAttitudeSimulink.slx"
+    status["spacecraft_database"] = SpacecraftPhysicalDatabase.CONFIGS
+    return jsonify(status)
+
+
+@app.route("/api/matlab/propagate", methods=["POST"])
+def matlab_propagate():
+    """Executes MATLAB Aerospace Toolbox based orbit propagation."""
+    payload = request.get_json(silent=True) or {}
+    sat_id = payload.get("sat_id", "tiangong")
+    duration_s = float(payload.get("duration_s", 5500.0))
+    step_s = float(payload.get("step_s", 60.0))
+    mode = payload.get("mode", "SGP4").upper()
+
+    if sat_id not in data_manager.satellites:
+        return jsonify({"status": "error", "message": f"Satellite {sat_id} not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    eng = get_matlab_engine()
+
+    if mode == "COWELL":
+        init_state = sat_entry["propagator"].get_initial_state_eci()
+        res = eng.propagate_cowell(init_state, (0.0, duration_s), step_s=step_s)
+    else:
+        res = eng.propagate_orbit_sgp4(sat_entry["line1"], sat_entry["line2"], duration_s=duration_s, step_s=step_s)
+
+    return jsonify(res)
+
+
+@app.route("/api/simulink/attitude", methods=["POST", "GET"])
+def simulink_attitude_simulation():
+    """Executes Simulink Aerospace Blockset 6-DOF closed-loop attitude simulation."""
+    payload = request.get_json(silent=True) or {}
+    if not payload and request.args:
+        payload = request.args.to_dict()
+
+    duration_s = float(payload.get("duration_s", 1200.0))
+    step_s = float(payload.get("step_s", 1.0))
+    attitude_mode = payload.get("attitude_mode", "NADIR")
+    sat_id = payload.get("sat_id", "tiangong")
+
+    sim = get_simulink_bridge()
+    res = sim.run_simulation(duration_s=duration_s, dt_step=step_s, attitude_mode=attitude_mode, sat_id=sat_id)
+    return jsonify(res)
+
+
+@app.route("/api/matlab/generate_simulink", methods=["GET", "POST"])
+def matlab_generate_simulink():
+    """Generates MATLAB / Simulink model construction script on the fly."""
+    sat_id = request.args.get("sat_id") or (request.get_json(silent=True) or {}).get("sat_id", "tiangong")
+    sim = get_simulink_bridge()
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".m", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        sim.generate_simulink_script(tmp_path, model_name=f"SpacecraftAttitude_{sat_id}", sat_id=sat_id)
+        with open(tmp_path, "r", encoding="utf-8") as f:
+            code = f.read()
+        return jsonify({
+            "status": "success",
+            "sat_id": sat_id,
+            "filename": f"build_simulink_{sat_id}_model.m",
+            "code": code
+        })
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@app.route("/api/matlab/export_mat", methods=["GET", "POST"])
+def matlab_export_mat():
+    """
+    Exports satellite telemetry (orbit ECI/ECEF/LLA, 6-DOF quaternions, Euler angles,
+    reaction wheel RPM, torques) directly into a MathWorks MATLAB binary .mat file.
+    """
+    import io
+    from flask import send_file
+    try:
+        from scipy.io import savemat
+    except ImportError:
+        return jsonify({"status": "error", "message": "scipy.io not installed"}), 500
+
+    payload = request.get_json(silent=True) or {}
+    if not payload and request.args:
+        payload = request.args.to_dict()
+
+    sat_id = payload.get("sat_id", "tiangong")
+    duration_s = float(payload.get("duration_s", 1200.0))
+    step_s = float(payload.get("step_s", 1.0))
+
+    sim = get_simulink_bridge()
+    attitude_res = sim.run_simulation(duration_s=duration_s, dt_step=step_s, sat_id=sat_id)
+
+    # Get orbit propagation
+    orbit_res = {}
+    if sat_id in data_manager.satellites:
+        sat_entry = data_manager.satellites[sat_id]
+        eng = get_matlab_engine()
+        orbit_res = eng.propagate_orbit_sgp4(sat_entry["line1"], sat_entry["line2"], duration_s=duration_s, step_s=step_s)
+
+    mat_dict = {
+        "sat_id": sat_id,
+        "satellite_name": attitude_res.get("satellite_name", sat_id),
+        "mass_kg": attitude_res.get("mass_kg", 22500.0),
+        "inertia_matrix": np.array(attitude_res.get("inertia_matrix", np.eye(3))),
+        "time_s": np.array(attitude_res.get("times_s", [])),
+        "quaternions": np.array(attitude_res.get("quaternions", [])),
+        "euler_angles_deg": np.array(attitude_res.get("euler_angles_deg", [])),
+        "angular_velocities_deg_s": np.array(attitude_res.get("angular_velocities_deg_s", [])),
+        "control_torques_body_nm": np.array(attitude_res.get("control_torques_body_nm", [])),
+        "reaction_wheel_rpm_4ch": np.array(attitude_res.get("wheel_rpm", [])),
+        "gravity_gradient_nm": np.array(attitude_res.get("gravity_gradient_nm", [])),
+        "pointing_accuracy_deg": float(attitude_res.get("pointing_accuracy_deg", 0.0)),
+        "states_eci_m": np.array(orbit_res.get("states_eci", np.zeros((1, 6)))),
+    }
+
+    buf = io.BytesIO()
+    savemat(buf, mat_dict)
+    buf.seek(0)
+
+    filename = f"{sat_id}_matlab_telemetry.mat"
+    return send_file(
+        buf,
+        mimetype="application/x-matlab-data",
+        as_attachment=True,
+        download_name=filename
+    )
 
 
 @app.route("/api/constellation/orbits", methods=["GET", "POST"])

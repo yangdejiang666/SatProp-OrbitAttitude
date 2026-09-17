@@ -274,11 +274,125 @@ class DashboardCharts {
         this.attChart.update();
     }
 
+    initMatlabCharts() {
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 300 },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.06)' },
+                    ticks: { color: '#94a3b8', font: { size: 9, family: 'JetBrains Mono' }, maxTicksLimit: 10 }
+                },
+                y: {
+                    grid: { color: 'rgba(255, 255, 255, 0.06)' },
+                    ticks: { color: '#94a3b8', font: { size: 9, family: 'JetBrains Mono' } }
+                }
+            },
+            plugins: {
+                legend: {
+                    labels: { color: '#cbd5e1', font: { size: 10, family: 'Inter' }, boxWidth: 10 }
+                }
+            }
+        };
+
+        const ctxEul = document.getElementById('chart-matlab-euler')?.getContext('2d');
+        if (ctxEul && !this.matlabEulerChart) {
+            this.matlabEulerChart = new Chart(ctxEul, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: 'Roll (°)', borderColor: '#f43f5e', data: [], borderWidth: 1.5, pointRadius: 0 },
+                        { label: 'Pitch (°)', borderColor: '#06b6d4', data: [], borderWidth: 1.5, pointRadius: 0 },
+                        { label: 'Yaw (°)', borderColor: '#10b981', data: [], borderWidth: 1.5, pointRadius: 0 },
+                    ]
+                },
+                options: commonOptions
+            });
+        }
+
+        const ctxWheels = document.getElementById('chart-matlab-wheels')?.getContext('2d');
+        if (ctxWheels && !this.matlabWheelsChart) {
+            this.matlabWheelsChart = new Chart(ctxWheels, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: 'RW1 (RPM)', borderColor: '#38bdf8', data: [], borderWidth: 1.5, pointRadius: 0 },
+                        { label: 'RW2 (RPM)', borderColor: '#fbbf24', data: [], borderWidth: 1.5, pointRadius: 0 },
+                        { label: 'RW3 (RPM)', borderColor: '#a855f7', data: [], borderWidth: 1.5, pointRadius: 0 },
+                        { label: 'RW4 (RPM)', borderColor: '#34d399', data: [], borderWidth: 1.5, pointRadius: 0 },
+                    ]
+                },
+                options: commonOptions
+            });
+        }
+    }
+
+    updateMatlabCharts(simData) {
+        if (!simData || !simData.times_s) return;
+        this.initMatlabCharts();
+
+        const times = simData.times_s;
+        const eulers = simData.euler_angles_deg || [];
+        const wheels = simData.wheel_rpm || [];
+        const step = Math.max(1, Math.floor(times.length / 60));
+
+        const labels = [];
+        const roll = [];
+        const pitch = [];
+        const yaw = [];
+
+        const rw1 = [];
+        const rw2 = [];
+        const rw3 = [];
+        const rw4 = [];
+
+        for (let i = 0; i < times.length; i += step) {
+            const mm = String(Math.floor(times[i] / 60)).padStart(2, '0');
+            const ss = String(Math.floor(times[i] % 60)).padStart(2, '0');
+            labels.push(`${mm}:${ss}`);
+
+            if (eulers[i]) {
+                roll.push(eulers[i][0]);
+                pitch.push(eulers[i][1]);
+                yaw.push(eulers[i][2]);
+            }
+
+            if (wheels[i]) {
+                rw1.push(wheels[i][0] || 0);
+                rw2.push(wheels[i][1] || 0);
+                rw3.push(wheels[i][2] || 0);
+                rw4.push(wheels[i][3] || 0);
+            }
+        }
+
+        if (this.matlabEulerChart) {
+            this.matlabEulerChart.data.labels = labels;
+            this.matlabEulerChart.data.datasets[0].data = roll;
+            this.matlabEulerChart.data.datasets[1].data = pitch;
+            this.matlabEulerChart.data.datasets[2].data = yaw;
+            this.matlabEulerChart.update();
+        }
+
+        if (this.matlabWheelsChart) {
+            this.matlabWheelsChart.data.labels = labels;
+            this.matlabWheelsChart.data.datasets[0].data = rw1;
+            this.matlabWheelsChart.data.datasets[1].data = rw2;
+            this.matlabWheelsChart.data.datasets[2].data = rw3;
+            this.matlabWheelsChart.data.datasets[3].data = rw4;
+            this.matlabWheelsChart.update();
+        }
+    }
+
     resizeCharts() {
         try {
             if (this.ricChart) this.ricChart.resize();
             if (this.attChart) this.attChart.resize();
             if (this.benchmarkChart) this.benchmarkChart.resize();
+            if (this.matlabEulerChart) this.matlabEulerChart.resize();
+            if (this.matlabWheelsChart) this.matlabWheelsChart.resize();
         } catch (e) {
             console.debug('Chart resize handled:', e);
         }
