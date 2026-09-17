@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SatProp Research Station | 航天科研级 4D 任务分析与权威交叉验证工作台</title>
+    <!-- CesiumJS CSS & JS -->
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-glass: rgba(11, 19, 41, 0.88);
+            --border-card: rgba(56, 189, 248, 0.25);
+            --color-nominal: #10b981;
+            --color-warning: #f59e0b;
+            --color-telemetry: #06b6d4;
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-sans: 'Inter', sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body, #cesiumContainer {
+            width: 100%; height: 100%; overflow: hidden; background: #000;
+            font-family: var(--font-sans); color: #fff;
+        }
+
+        /* Top Research HUD Navigation */
+        #research-topbar {
+            position: absolute; top: 12px; left: 14px; right: 14px;
+            height: 48px; background: var(--bg-glass); backdrop-filter: blur(14px);
+            border: 1px solid var(--border-card); border-radius: 8px;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 16px; z-index: 100; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+        }
+        .res-brand {
+            display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 13px;
+        }
+        .res-badge {
+            background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4);
+            color: var(--color-nominal); font-size: 10px; padding: 2px 7px; border-radius: 4px;
+            font-family: var(--font-mono); letter-spacing: 0.05em;
+        }
+        .res-actions {
+            display: flex; align-items: center; gap: 8px;
+        }
+        .res-btn {
+            background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border-card);
+            color: #e2e8f0; padding: 5px 11px; border-radius: 4px; font-size: 11px;
+            font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px;
+            transition: all 0.15s ease; font-family: var(--font-sans);
+        }
+        .res-btn:hover {
+            background: rgba(56, 189, 248, 0.2); border-color: #38bdf8; color: #fff;
+        }
+        .res-btn.primary {
+            background: #0284c7; border-color: #38bdf8; color: #fff;
+        }
+        .res-btn.primary:hover { background: #0369a1; }
+        .res-btn.gold {
+            background: rgba(245, 158, 11, 0.2); border-color: #f59e0b; color: #fde68a;
+        }
+
+        /* Verification Discrepancy Card (Floating Left) */
+        #verification-card {
+            position: absolute; top: 70px; left: 14px; width: 360px;
+            background: var(--bg-glass); backdrop-filter: blur(16px);
+            border: 1px solid var(--border-card); border-radius: 8px;
+            padding: 14px; z-index: 100; box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+        }
+        .card-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .card-title {
+            font-size: 12px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;
+        }
+        .metric-row {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 11px; line-height: 1.8; color: #cbd5e1;
+        }
+        .metric-val {
+            font-family: var(--font-mono); font-weight: 600;
+        }
+        .metric-val.nominal { color: var(--color-nominal); }
+        .metric-val.warning { color: var(--color-warning); }
+
+        /* Trajectory Legend */
+        .legend-box {
+            display: flex; gap: 14px; margin-top: 10px; padding: 8px;
+            background: rgba(0,0,0,0.4); border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);
+            font-size: 10px;
+        }
+        .legend-item { display: flex; align-items: center; gap: 6px; }
+        .legend-line { width: 18px; height: 3px; border-radius: 2px; }
+
+        /* Custom Cesium Overrides */
+        .cesium-viewer-bottom { display: none; }
+        .cesium-viewer-toolbar { top: 70px; right: 14px; }
+        .cesium-timeline-container { bottom: 10px; left: 14px; right: 14px; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+
+    <!-- Top Mission Control Navigation -->
+    <header id="research-topbar">
+        <div class="res-brand">
+            <span style="font-size:18px;">🛰️</span>
+            <span>SatProp Research Station (Cesium 4D Astrodynamics Platform)</span>
+            <span class="res-badge">NASA/IAU STANDARDS ALIGNED</span>
+        </div>
+        <div class="res-actions">
+            <select id="select-res-sat" class="res-btn" style="background:#0f172a;">
+                <option value="tiangong" selected>🇨🇳 天宫空间站 (CSS Tianhe)</option>
+                <option value="iss">🇺🇸 国际空间站 (ISS)</option>
+                <option value="beidou">🇨🇳 北斗三号导航星 (BeiDou-3 M5)</option>
+                <option value="sentinel1a">🇪🇺 哨兵-1A 遥感卫星</option>
+            </select>
+            <button id="btn-load-mission-data" class="res-btn primary" title="拉取当前前端计算的实测推演轨道与姿态并在 Cesium 中复现">
+                📥 载入当前推演数据
+            </button>
+            <button id="btn-run-cross-audit" class="res-btn gold" title="使用 Skyfield/Astropy 权威标准进行数值交叉核验">
+                🔬 执行权威对齐核验
+            </button>
+            <button id="btn-export-gmat" class="res-btn" title="生成标准 NASA GMAT 任务分析脚本">
+                📝 导出 NASA GMAT 脚本
+            </button>
+            <button id="btn-export-czml" class="res-btn" title="导出标准 AGI STK / Cesium CZML 文件">
+                💾 导出 STK/CZML
+            </button>
+            <button id="btn-back-to-cockpit" class="res-btn" onclick="window.location.href='/'">
+                ◀ 返回主驾驶舱
+            </button>
+        </div>
+    </header>
+
+    <!-- Verification Discrepancy Card -->
+    <aside id="verification-card">
+        <div class="card-header">
+            <div class="card-title">
+                <span>🔬</span>
+                <span>权威基准交叉验证看板 (Audit Dashboard)</span>
+            </div>
+            <span id="audit-verdict-badge" class="res-badge">WAITING AUDIT</span>
+        </div>
+
+        <div style="font-size:10px; color:#94a3b8; margin-bottom:8px; line-height:1.4;">
+            基准体系：<b>USNO / Skyfield IAU-2006 GCRS</b>，对齐本系统自研 Cowell 摄动数值积分与 ML 残差补偿模型。
+        </div>
+
+        <div class="metric-row">
+            <span>空间位置 RMS 绝对偏差:</span>
+            <b id="audit-pos-rms" class="metric-val nominal">-- m</b>
+        </div>
+        <div class="metric-row">
+            <span>径向偏差 (Radial ΔR RMS):</span>
+            <b id="audit-ric-r" class="metric-val nominal">-- m</b>
+        </div>
+        <div class="metric-row">
+            <span>沿轨偏差 (In-Track ΔI RMS):</span>
+            <b id="audit-ric-i" class="metric-val warning">-- m</b>
+        </div>
+        <div class="metric-row">
+            <span>法向偏差 (Cross-Track ΔC RMS):</span>
+            <b id="audit-ric-c" class="metric-val nominal">-- m</b>
+        </div>
+        <div class="metric-row">
+            <span>3-σ 空间误差包络:</span>
+            <b id="audit-pos-3sigma" class="metric-val">-- m</b>
+        </div>
+        <div class="metric-row">
+            <span>权威模型科学符合率:</span>
+            <b id="audit-parity-pct" class="metric-val nominal">-- %</b>
+        </div>
+
+        <!-- Trajectory Legend -->
+        <div class="legend-box">
+            <div class="legend-item">
+                <span class="legend-line" style="background:#06b6d4;"></span>
+                <span>SatProp 模型推演轨</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-line" style="background:#10b981;"></span>
+                <span>NASA/Skyfield 权威基准轨</span>
+            </div>
+        </div>
+    </aside>
+
+    <script>
+        // Initialize Cesium Viewer with high-precision inertial reference frame
+        let viewer;
+        try {
+            viewer = new Cesium.Viewer('cesiumContainer', {
+                imageryProvider: new Cesium.OpenStreetMapImageryProvider({
+                    url: 'https://tile.openstreetmap.org/'
+                }),
+                baseLayerPicker: true,
+                geocoder: false,
+                homeButton: true,
+                infoBox: true,
+                selectionIndicator: true,
+                navigationHelpButton: false,
+                animation: true,
+                timeline: true,
+                scene3DOnly: true,
+                shouldAnimate: true
+            });
+            viewer.scene.globe.enableLighting = true;
+        } catch (e) {
+            console.error('Cesium initialization failed:', e);
+            document.body.innerHTML += '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1e293b;padding:24px;border-radius:8px;border:1px solid #ef4444;color:#fff;"><h3>Cesium 引擎初始化提示</h3><p style="margin-top:8px;font-size:12px;color:#94a3b8;">正在连接 Cesium 航天三维渲染库，请检查网络连接或稍后刷新。</p></div>';
+        }
+
+        let currentCzmlDataSource = null;
+
+        // 1. Load Mission CZML from Backend
+        async function loadMissionCZML(satId = 'tiangong') {
+            const btn = document.getElementById('btn-load-mission-data');
+            btn.textContent = '⏳ 正在加载 CZML...';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch(`/api/research/czml?sat_id=${encodeURIComponent(satId)}`);
+                const czmlData = await res.json();
+
+                if (currentCzmlDataSource) {
+                    viewer.dataSources.remove(currentCzmlDataSource);
+                }
+
+                currentCzmlDataSource = await viewer.dataSources.add(Cesium.CzmlDataSource.load(czmlData));
+                viewer.zoomTo(currentCzmlDataSource);
+                btn.textContent = '✅ CZML 轨迹加载成功';
+            } catch (err) {
+                console.error('CZML load error:', err);
+                alert('CZML 加载失败: ' + err.message);
+                btn.textContent = '📥 载入当前推演数据';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 2. Run Cross-Audit against Skyfield/Astropy
+        async function runCrossAudit(satId = 'tiangong') {
+            const btn = document.getElementById('btn-run-cross-audit');
+            btn.textContent = '🔬 正在计算权威比对...';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch(`/api/research/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sat_id: satId, duration_s: 5500.0, step_s: 60.0 })
+                });
+                const report = await res.json();
+
+                if (report.status === 'success') {
+                    const m = report.metrics;
+                    document.getElementById('audit-pos-rms').textContent = `${m.rms_position_m} m`;
+                    document.getElementById('audit-ric-r').textContent = `${m.radial_rms_m} m`;
+                    document.getElementById('audit-ric-i').textContent = `${m.in_track_rms_m} m`;
+                    document.getElementById('audit-ric-c').textContent = `${m.cross_track_rms_m} m`;
+                    document.getElementById('audit-pos-3sigma').textContent = `${m.sigma3_position_m} m`;
+                    document.getElementById('audit-parity-pct').textContent = `${report.evaluation.scientific_parity_pct}%`;
+                    document.getElementById('audit-verdict-badge').textContent = report.evaluation.verdict;
+
+                    // Automatically reload CZML to show both trajectories side-by-side
+                    await loadMissionCZML(satId);
+                } else {
+                    alert('验证分析失败: ' + (report.message || '未知错误'));
+                }
+            } catch (err) {
+                console.error('Audit failed:', err);
+                alert('权威核验调用失败: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔬 执行权威对齐核验';
+            }
+        }
+
+        // 3. Export NASA GMAT script
+        document.getElementById('btn-export-gmat').addEventListener('click', () => {
+            const satId = document.getElementById('select-res-sat').value;
+            window.open(`/api/research/export_gmat?sat_id=${encodeURIComponent(satId)}`, '_blank');
+        });
+
+        // 4. Export CZML file
+        document.getElementById('btn-export-czml').addEventListener('click', () => {
+            const satId = document.getElementById('select-res-sat').value;
+            window.open(`/api/research/download_czml?sat_id=${encodeURIComponent(satId)}`, '_blank');
+        });
+
+        document.getElementById('btn-load-mission-data').addEventListener('click', () => {
+            const satId = document.getElementById('select-res-sat').value;
+            loadMissionCZML(satId);
+        });
+
+        document.getElementById('btn-run-cross-audit').addEventListener('click', () => {
+            const satId = document.getElementById('select-res-sat').value;
+            runCrossAudit(satId);
+        });
+
+        document.getElementById('select-res-sat').addEventListener('change', (e) => {
+            loadMissionCZML(e.target.value);
+        });
+
+        // Auto load on start
+        window.addEventListener('load', () => {
+            if (viewer) {
+                loadMissionCZML('tiangong');
+            }
+        });
+    </script>
+</body>
+</html>

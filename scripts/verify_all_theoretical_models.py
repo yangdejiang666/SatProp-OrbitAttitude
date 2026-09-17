@@ -183,6 +183,7 @@ endpoints = [
     ("/api/visibility?sat_id=sentinel2a&hours=6.0", "GET", None),
     ("/api/isl", "GET", None),
     ("/api/predict/synthetic_calibration", "POST", {"sat_id": "sentinel2a", "duration_hours": 1.5, "obs_count": 8}),
+    ("/api/predict/future_state", "POST", {"sat_id": "tiangong", "delta_hours": 5.0}),
     ("/api/benchmark?sat_id=sentinel2a&hours=1.0", "GET", None),
 ]
 

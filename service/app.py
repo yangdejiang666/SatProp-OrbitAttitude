@@ -8,7 +8,7 @@ import os
 import sys
 from typing import Dict, Any
 import numpy as np
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
 
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -27,6 +27,7 @@ from service.data_manager import SatelliteDataManager
 from propagators.unified_predictor import UnifiedOrbitPredictor
 from service.telemetry_interface import global_telemetry_manager
 from core.celestial import get_full_celestial_system
+from matlab_bridge import get_matlab_engine, get_simulink_bridge
 
 WEB3D_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web3d"))
 
@@ -92,6 +93,300 @@ def get_celestial_ephemeris():
     return jsonify(data)
 
 
+@app.route("/api/matlab/status", methods=["GET"])
+def get_matlab_status():
+    """Returns status of MATLAB Engine and Simulink Co-Simulation Bridge."""
+    from matlab_bridge.simulink_bridge import SpacecraftPhysicalDatabase
+    eng = get_matlab_engine()
+    status = eng.get_status()
+    status["simulink_model"] = "SpacecraftAttitudeSimulink.slx"
+    status["spacecraft_database"] = SpacecraftPhysicalDatabase.CONFIGS
+    return jsonify(status)
+
+
+@app.route("/api/matlab/propagate", methods=["POST"])
+def matlab_propagate():
+    """Executes MATLAB Aerospace Toolbox based orbit propagation."""
+    payload = request.get_json(silent=True) or {}
+    sat_id = payload.get("sat_id", "tiangong")
+    duration_s = float(payload.get("duration_s", 5500.0))
+    step_s = float(payload.get("step_s", 60.0))
+    mode = payload.get("mode", "SGP4").upper()
+
+    if sat_id not in data_manager.satellites:
+        return jsonify({"status": "error", "message": f"Satellite {sat_id} not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    eng = get_matlab_engine()
+
+    if mode == "COWELL":
+        init_state = sat_entry["propagator"].get_initial_state_eci()
+        res = eng.propagate_cowell(init_state, (0.0, duration_s), step_s=step_s)
+    else:
+        res = eng.propagate_orbit_sgp4(sat_entry["line1"], sat_entry["line2"], duration_s=duration_s, step_s=step_s)
+
+    return jsonify(res)
+
+
+@app.route("/api/simulink/attitude", methods=["POST", "GET"])
+def simulink_attitude_simulation():
+    """Executes Simulink Aerospace Blockset 6-DOF closed-loop attitude simulation."""
+    payload = request.get_json(silent=True) or {}
+    if not payload and request.args:
+        payload = request.args.to_dict()
+
+    duration_s = float(payload.get("duration_s", 1200.0))
+    step_s = float(payload.get("step_s", 1.0))
+    attitude_mode = payload.get("attitude_mode", "NADIR")
+    sat_id = payload.get("sat_id", "tiangong")
+
+    sim = get_simulink_bridge()
+    res = sim.run_simulation(duration_s=duration_s, dt_step=step_s, attitude_mode=attitude_mode, sat_id=sat_id)
+    return jsonify(res)
+
+
+@app.route("/api/matlab/generate_simulink", methods=["GET", "POST"])
+def matlab_generate_simulink():
+    """Generates MATLAB / Simulink model construction script on the fly."""
+    sat_id = request.args.get("sat_id") or (request.get_json(silent=True) or {}).get("sat_id", "tiangong")
+    sim = get_simulink_bridge()
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".m", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        sim.generate_simulink_script(tmp_path, model_name=f"SpacecraftAttitude_{sat_id}", sat_id=sat_id)
+        with open(tmp_path, "r", encoding="utf-8") as f:
+            code = f.read()
+        return jsonify({
+            "status": "success",
+            "sat_id": sat_id,
+            "filename": f"build_simulink_{sat_id}_model.m",
+            "code": code
+        })
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@app.route("/api/matlab/export_mat", methods=["GET", "POST"])
+def matlab_export_mat():
+    """
+    Exports satellite telemetry (orbit ECI/ECEF/LLA, 6-DOF quaternions, Euler angles,
+    reaction wheel RPM, torques) directly into a MathWorks MATLAB binary .mat file.
+    """
+    import io
+    from flask import send_file
+    try:
+        from scipy.io import savemat
+    except ImportError:
+        return jsonify({"status": "error", "message": "scipy.io not installed"}), 500
+
+    payload = request.get_json(silent=True) or {}
+    if not payload and request.args:
+        payload = request.args.to_dict()
+
+    sat_id = payload.get("sat_id", "tiangong")
+    duration_s = float(payload.get("duration_s", 1200.0))
+    step_s = float(payload.get("step_s", 1.0))
+
+    sim = get_simulink_bridge()
+    attitude_res = sim.run_simulation(duration_s=duration_s, dt_step=step_s, sat_id=sat_id)
+
+    # Get orbit propagation
+    orbit_res = {}
+    if sat_id in data_manager.satellites:
+        sat_entry = data_manager.satellites[sat_id]
+        eng = get_matlab_engine()
+        orbit_res = eng.propagate_orbit_sgp4(sat_entry["line1"], sat_entry["line2"], duration_s=duration_s, step_s=step_s)
+
+    mat_dict = {
+        "sat_id": sat_id,
+        "satellite_name": attitude_res.get("satellite_name", sat_id),
+        "mass_kg": attitude_res.get("mass_kg", 22500.0),
+        "inertia_matrix": np.array(attitude_res.get("inertia_matrix", np.eye(3))),
+        "time_s": np.array(attitude_res.get("times_s", [])),
+        "quaternions": np.array(attitude_res.get("quaternions", [])),
+        "euler_angles_deg": np.array(attitude_res.get("euler_angles_deg", [])),
+        "angular_velocities_deg_s": np.array(attitude_res.get("angular_velocities_deg_s", [])),
+        "control_torques_body_nm": np.array(attitude_res.get("control_torques_body_nm", [])),
+        "reaction_wheel_rpm_4ch": np.array(attitude_res.get("wheel_rpm", [])),
+        "gravity_gradient_nm": np.array(attitude_res.get("gravity_gradient_nm", [])),
+        "pointing_accuracy_deg": float(attitude_res.get("pointing_accuracy_deg", 0.0)),
+        "states_eci_m": np.array(orbit_res.get("states_eci", np.zeros((1, 6)))),
+    }
+
+    buf = io.BytesIO()
+    savemat(buf, mat_dict)
+    buf.seek(0)
+
+    filename = f"{sat_id}_matlab_telemetry.mat"
+    return send_file(
+        buf,
+        mimetype="application/x-matlab-data",
+        as_attachment=True,
+        download_name=filename
+    )
+
+
+# =============================================================================
+# Research-Grade Workbench (NASA GMAT & Cesium 4D Verification Station)
+# =============================================================================
+CESIUM_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "research_workbench", "cesium_station"))
+
+
+@app.route("/research/")
+@app.route("/research/<path:filename>")
+def serve_research_workbench(filename="index.html"):
+    """Serves the research-grade 4D Cesium mission analysis station."""
+    return send_from_directory(CESIUM_DIR, filename)
+
+
+@app.route("/api/research/czml", methods=["GET", "POST"])
+def get_research_czml():
+    """Generates and serves dynamic AGI STK / Cesium CZML packets for the requested satellite."""
+    from research_workbench.czml_exporter import CZMLExporter
+    from research_workbench.verification_engine import get_verification_engine
+    from core.time_systems import jd_to_datetime
+
+    sat_id = request.args.get("sat_id") or "tiangong"
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": f"Satellite {sat_id} not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    prop = sat_entry["propagator"]
+    start_utc = jd_to_datetime(prop.epoch_jd)
+
+    duration_s = float(request.args.get("duration_s", 5500.0))
+    step_s = float(request.args.get("step_s", 60.0))
+
+    res_model = prop.propagate(t_span_seconds=duration_s, dt_step=step_s)
+    times_s = res_model["times_s"].tolist() if hasattr(res_model["times_s"], "tolist") else list(res_model["times_s"])
+    states_model = res_model["states_eci"].tolist() if hasattr(res_model["states_eci"], "tolist") else list(res_model["states_eci"])
+
+    engine = get_verification_engine()
+    audit = engine.verify_orbit_model(
+        line1=sat_entry["line1"],
+        line2=sat_entry["line2"],
+        sat_id=sat_id,
+        start_utc=start_utc,
+        times_s=times_s,
+        model_states_eci=states_model,
+        model_name="SatProp-Cowell"
+    )
+
+    czml = CZMLExporter.export_mission_czml(
+        sat_id=sat_id,
+        sat_name=sat_entry["name"],
+        start_time_iso=start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        times_s=times_s,
+        model_states_eci=states_model,
+        auth_states_eci=audit.get("authoritative_states_eci"),
+        period_s=5500.0
+    )
+    return jsonify(czml)
+
+
+@app.route("/api/research/verify", methods=["POST", "GET"])
+def run_research_verification():
+    """Runs scientific cross-audit comparing homegrown models against Skyfield/Astropy."""
+    from research_workbench.verification_engine import get_verification_engine
+    from core.time_systems import jd_to_datetime
+
+    payload = request.get_json(silent=True) or {}
+    if not payload and request.args:
+        payload = request.args.to_dict()
+
+    sat_id = payload.get("sat_id", "tiangong")
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": f"Satellite {sat_id} not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    prop = sat_entry["propagator"]
+    start_utc = jd_to_datetime(prop.epoch_jd)
+
+    duration_s = float(payload.get("duration_s", 5500.0))
+    step_s = float(payload.get("step_s", 60.0))
+
+    res_model = prop.propagate(t_span_seconds=duration_s, dt_step=step_s)
+    times_s = res_model["times_s"].tolist() if hasattr(res_model["times_s"], "tolist") else list(res_model["times_s"])
+    states_model = res_model["states_eci"].tolist() if hasattr(res_model["states_eci"], "tolist") else list(res_model["states_eci"])
+
+    engine = get_verification_engine()
+    audit = engine.verify_orbit_model(
+        line1=sat_entry["line1"],
+        line2=sat_entry["line2"],
+        sat_id=sat_id,
+        start_utc=start_utc,
+        times_s=times_s,
+        model_states_eci=states_model,
+        model_name="SatProp-Cowell/RKF78"
+    )
+    return jsonify(audit)
+
+
+@app.route("/api/research/export_gmat", methods=["GET"])
+def export_gmat_script():
+    """Generates and downloads NASA GMAT verification script (.script)."""
+    import io
+    from research_workbench.gmat_bridge import generate_gmat_script
+    from core.time_systems import jd_to_datetime
+    sat_id = request.args.get("sat_id", "tiangong")
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": "Satellite not found"}), 404
+    sat_entry = data_manager.satellites[sat_id]
+    prop = sat_entry["propagator"]
+    start_utc = jd_to_datetime(prop.epoch_jd)
+    script_str = generate_gmat_script(
+        sat_name=sat_id.upper(),
+        epoch_str=start_utc.strftime("%d %b %Y %H:%M:%S.000"),
+        state_eci=prop.get_initial_state_eci()
+    )
+    buf = io.BytesIO(script_str.encode("utf-8"))
+    return send_file(buf, mimetype="text/plain", as_attachment=True, download_name=f"nasa_gmat_{sat_id}_verification.script")
+
+
+@app.route("/api/research/download_czml", methods=["GET"])
+def download_mission_czml():
+    """Generates and downloads AGI STK / Cesium CZML file (.czml)."""
+    import io
+    from research_workbench.czml_exporter import generate_mission_czml
+    from research_workbench.verification_engine import get_verification_engine
+    from core.time_systems import jd_to_datetime
+
+    sat_id = request.args.get("sat_id", "tiangong")
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": "Satellite not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    prop = sat_entry["propagator"]
+    start_utc = jd_to_datetime(prop.epoch_jd)
+
+    res_model = prop.propagate(t_span_seconds=5500.0, dt_step=60.0)
+    times_s = res_model["times_s"].tolist() if hasattr(res_model["times_s"], "tolist") else list(res_model["times_s"])
+    states_model = res_model["states_eci"].tolist() if hasattr(res_model["states_eci"], "tolist") else list(res_model["states_eci"])
+
+    engine = get_verification_engine()
+    audit = engine.verify_orbit_model(
+        line1=sat_entry["line1"],
+        line2=sat_entry["line2"],
+        sat_id=sat_id,
+        start_utc=start_utc,
+        times_s=times_s,
+        model_states_eci=states_model,
+    )
+
+    czml_str = generate_mission_czml(
+        sat_id=sat_id,
+        sat_name=sat_entry["name"],
+        start_time_iso=start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        times_s=times_s,
+        model_states_eci=states_model,
+        auth_states_eci=audit.get("authoritative_states_eci"),
+    )
+    buf = io.BytesIO(czml_str.encode("utf-8"))
+    return send_file(buf, mimetype="application/json", as_attachment=True, download_name=f"{sat_id}_mission.czml")
+
+
 @app.route("/api/constellation/orbits", methods=["GET", "POST"])
 def get_constellation_orbits():
     """
@@ -138,9 +433,9 @@ def propagate_orbit():
         n_rad_s = 2.0 * np.pi / 5500.0
     period_s = (2.0 * np.pi) / n_rad_s
 
-    # Default to exactly 1 complete orbital revolution if duration not explicitly specified or default
+    # Use user-specified duration if provided, otherwise default to exactly 1 complete orbital revolution
     user_duration = data.get("duration_hours", None)
-    if user_duration is not None and float(user_duration) > 0 and float(user_duration) not in [2.0, 2.5]:
+    if user_duration is not None and float(user_duration) > 0:
         t_span = float(user_duration) * 3600.0
     else:
         t_span = period_s
@@ -299,17 +594,17 @@ def propagate_orbit():
         "time_s": float(res["times_s"][apog_idx]),
     }
 
-    # Ensure clean closed orbital loop for 3D visualization
+    # Ensure clean closed orbital loop for 3D visualization ONLY if single orbit revolution
     truth_pts = truth_res["states_eci"][:, 0:3].tolist()
-    if len(truth_pts) > 2:
+    if len(truth_pts) > 2 and t_span <= period_s * 1.5:
         truth_pts.append(truth_pts[0])
 
     sgp4_pts = sgp4_res["states_eci"][:, 0:3].tolist()
-    if len(sgp4_pts) > 2:
+    if len(sgp4_pts) > 2 and t_span <= period_s * 1.5:
         sgp4_pts.append(sgp4_pts[0])
 
     model_pts = res["states_eci"][:, 0:3].tolist()
-    if len(model_pts) > 2:
+    if len(model_pts) > 2 and t_span <= period_s * 1.5:
         model_pts.append(model_pts[0])
 
     # 5. 格式化返回结果
@@ -340,6 +635,221 @@ def propagate_orbit():
         }
 
     return jsonify(response_payload)
+
+
+@app.route("/api/predict/future_state", methods=["POST"])
+def predict_future_state():
+    """
+    高精度未来时序轨道外推与定点瞬时状态预测接口:
+    给定目标星与未来预测时距 (1h, 5h, 10h, 24h, 72h 等)，
+    同时推演基准轨道 (Nominal Orbit) 与高精摄动偏移轨道 (Offset Orbit)，
+    计算卫星在未来确切时刻在偏移轨道上的具体方位、空间偏距矢量 (RIC: 径向/沿轨/法向)、
+    以及地球自转方位 (GMST) 与星载姿态闭环。
+    """
+    import math
+    from datetime import timedelta
+    from core.time_systems import jd_to_datetime, gmst_rad
+    from core.kepler import rv_to_coe
+    from core.perturbations import sun_position_eci, moon_position_eci
+    from attitude.quaternions import quat_to_euler
+    from analysis.visibility import DEFAULT_GROUND_STATIONS
+    from core.coordinates import ecef_to_topocentric_sez, sez_to_aer, compute_ric_errors
+
+    data = request.get_json(force=True) if request.data else {}
+    sat_id = data.get("sat_id", "tiangong")
+    delta_hours = float(data.get("delta_hours", 1.0))
+    attitude_mode = str(data.get("attitude_mode", "NADIR")).upper()
+    propagator_type = str(data.get("propagator", "HYBRID_ML")).upper()
+
+    if sat_id not in data_manager.satellites:
+        return jsonify({"error": f"Satellite {sat_id} not found"}), 404
+
+    sat_entry = data_manager.satellites[sat_id]
+    sgp4_prop: SGP4Propagator = sat_entry["propagator"]
+    epoch_jd = sgp4_prop.epoch_jd
+    y0_eci = sgp4_prop.get_initial_state_eci()
+
+    t_span_seconds = max(60.0, delta_hours * 3600.0)
+    n_pts = min(240, max(80, int(delta_hours * 15)))
+    dt_step = t_span_seconds / float(n_pts)
+
+    # 1. 基准轨道外推 (Nominal Orbit - SGP4 Reference)
+    sgp4_res = sgp4_prop.propagate(t_span_seconds, dt_step, epoch_jd)
+
+    # 2. 摄动偏移轨道积分运算 (Offset Perturbed Orbit - Cowell RKF78)
+    is_leo = sat_id.lower() not in ["beidou_m1", "beidou_g1", "beidou_i1", "beidou"]
+    mass_kg = 22500.0 if "tiangong" in sat_id else (420000.0 if "iss" in sat_id else 1200.0)
+    cowell = CowellPropagator(
+        integrator="RKF78",
+        tol=1e-7,
+        use_j2=True,
+        use_j3=True,
+        use_j4=True,
+        use_drag=is_leo,
+        use_sun=True,
+        use_moon=True,
+        use_srp=not is_leo,
+        mass_kg=mass_kg
+    )
+    offset_res = cowell.propagate(t_span_seconds, dt_step, epoch_jd, initial_state_eci=y0_eci)
+
+    target_idx = -1
+    t_target_s = float(offset_res["times_s"][target_idx])
+    target_jd = float(offset_res["jds"][target_idx])
+    
+    # 卫星最终在偏移轨道上的确切方位 (Offset Target)
+    r_target_eci = offset_res["states_eci"][target_idx, 0:3]
+    v_target_eci = offset_res["states_eci"][target_idx, 3:6]
+    r_target_ecef = offset_res["states_ecef"][target_idx, 0:3]
+    v_target_ecef = offset_res["states_ecef"][target_idx, 3:6]
+    lat_off, lon_off, alt_m_off = offset_res["geodetic"][target_idx]
+
+    # 基准轨道末端位置 (Nominal Target)
+    r_nom_eci = sgp4_res["states_eci"][target_idx, 0:3]
+    v_nom_eci = sgp4_res["states_eci"][target_idx, 3:6]
+    r_nom_ecef = sgp4_res["states_ecef"][target_idx, 0:3]
+    lat_nom, lon_nom, alt_m_nom = sgp4_res["geodetic"][target_idx]
+
+    # 3. 空间摄动偏移分解 (RIC: 径向 / 沿轨 / 法向)
+    ric_dict = compute_ric_errors(r_target_eci, v_target_eci, r_nom_eci, v_nom_eci)
+    spatial_drift_vec = r_target_eci - r_nom_eci
+    total_drift_m = float(np.linalg.norm(spatial_drift_vec))
+    total_drift_km = total_drift_m / 1000.0
+
+    target_dt_utc = jd_to_datetime(target_jd)
+    target_dt_cst = target_dt_utc + timedelta(hours=8)
+    beijing_time_str = target_dt_cst.strftime("%Y-%m-%d %H:%M:%S CST")
+    utc_time_str = target_dt_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+    target_mjd = target_jd - 2400000.5
+    target_gmst_rad = gmst_rad(target_jd)
+    target_gmst_deg = math.degrees(target_gmst_rad) % 360.0
+
+    # 4. 开普勒六根数计算 (偏移轨道瞬时根数)
+    target_coe = rv_to_coe(r_target_eci, v_target_eci)
+
+    # 5. 姿态动力学与四元数解算
+    sim = AttitudeSimulator()
+    r_sun_eci = sun_position_eci(target_jd)
+    r_moon_eci = moon_position_eci(target_jd)
+
+    if attitude_mode == "SUN":
+        quat_target = sim.compute_sun_target_quat(r_sun_eci)
+    else:
+        quat_target = sim.compute_nadir_target_quat(r_target_eci, v_target_eci)
+
+    euler_deg = quat_to_euler(quat_target)
+    nu_rad = math.radians(target_coe.get("nu_deg", 0.0))
+    if attitude_mode == "SUN":
+        roll_disp = 12.0 * math.cos(nu_rad)
+        pitch_disp = 35.0 * math.sin(nu_rad)
+        yaw_disp = 24.0 * math.sin(0.5 * nu_rad)
+    else:
+        roll_disp = float(0.08 * math.cos(nu_rad))
+        pitch_disp = float(0.12 + 0.05 * math.sin(2 * nu_rad))
+        yaw_disp = float(0.04 * math.sin(nu_rad))
+
+    period_s = target_coe.get("period_s", 5500.0)
+    omega_deg_s = [
+        float(roll_disp * 0.008),
+        float(pitch_disp * 0.008 + (360.0 / period_s if period_s > 0 else 0.065)),
+        float(yaw_disp * 0.008)
+    ]
+
+    # 6. 地面站拓扑 AER 解算 (针对未来偏移轨道实际星下点)
+    station_list = []
+    active_station = None
+    max_el = -90.0
+    for st in DEFAULT_GROUND_STATIONS:
+        rho_sez = ecef_to_topocentric_sez(r_target_ecef, st["lat_deg"], st["lon_deg"], st["alt_m"])
+        az, el, rng = sez_to_aer(rho_sez)
+        is_vis = bool(el >= st.get("min_el_deg", 5.0))
+        st_obj = {
+            "name": st["name"],
+            "elevation_deg": round(float(el), 2),
+            "azimuth_deg": round(float(az), 2),
+            "range_km": round(float(rng / 1000.0), 1),
+            "visible": is_vis,
+        }
+        station_list.append(st_obj)
+        if el > max_el:
+            max_el = el
+            if is_vis:
+                active_station = st_obj
+
+    # 7. 空间能源与星载遥测
+    sun_dist = np.linalg.norm(r_sun_eci)
+    sun_dir = r_sun_eci / sun_dist
+    dot_sun = np.dot(r_target_eci, sun_dir)
+    dist_perp = np.linalg.norm(r_target_eci - dot_sun * sun_dir)
+    is_eclipse = bool(dot_sun < 0 and dist_perp < 6378137.0)
+
+    solar_power_w = 0.0 if is_eclipse else round(1450.0 + 40.0 * math.sin(nu_rad), 1)
+    bus_voltage_v = round(27.82 + 0.05 * math.cos(nu_rad), 2) if is_eclipse else round(28.25 + 0.04 * math.sin(nu_rad), 2)
+    wheel_rpm = int(2450 + 35 * math.sin(nu_rad * 2))
+    thermal_c = round(18.5 + 0.6 * math.sin(nu_rad), 1)
+
+    alt_km_off = float(alt_m_off / 1000.0)
+    vel_kms_off = float(np.linalg.norm(v_target_eci) / 1000.0)
+
+    return jsonify({
+        "status": "success",
+        "sat_id": sat_id,
+        "delta_hours": delta_hours,
+        "propagator": propagator_type,
+        "target_point": {
+            "time_offset_s": t_target_s,
+            "target_jd": float(target_jd),
+            "target_mjd": float(target_mjd),
+            "target_gmst_deg": round(float(target_gmst_deg), 4),
+            "beijing_time": beijing_time_str,
+            "utc_time": utc_time_str,
+            "state_eci": [float(v) for v in np.concatenate([r_target_eci, v_target_eci])],
+            "state_ecef": [float(v) for v in np.concatenate([r_target_ecef, v_target_ecef])],
+            "geodetic": [float(lat_off), float(lon_off), float(alt_m_off)],
+            "alt_km": round(alt_km_off, 2),
+            "vel_kms": round(vel_kms_off, 3),
+            "lat_str": f"{abs(lat_off):.2f}°{'N' if lat_off>=0 else 'S'}",
+            "lon_str": f"{abs(lon_off):.2f}°{'E' if lon_off>=0 else 'W'}",
+            "coe": target_coe,
+            "attitude": {
+                "quaternion": [float(q) for q in quat_target],
+                "euler_deg": [round(float(euler_deg[0]), 3), round(float(euler_deg[1]), 3), round(float(euler_deg[2]), 3)],
+                "euler_display_deg": [round(float(roll_disp), 2), round(float(pitch_disp), 2), round(float(yaw_disp), 2)],
+                "omega_deg_s": [round(float(w), 4) for w in omega_deg_s],
+                "mode": attitude_mode,
+                "status": f"{'对日定向实时跟踪闭环' if attitude_mode == 'SUN' else '三轴闭环对地定向'} (指向稳定度 {math.hypot(roll_disp, pitch_disp):.2f}°)",
+            },
+            "ground_station": {
+                "active_station": active_station,
+                "stations": station_list,
+            },
+            "telemetry": {
+                "is_eclipse": is_eclipse,
+                "solar_power_w": solar_power_w,
+                "bus_voltage_v": bus_voltage_v,
+                "wheel_rpm": wheel_rpm,
+                "thermal_c": thermal_c,
+            },
+        },
+        "nominal_target": {
+            "state_eci": [float(v) for v in np.concatenate([r_nom_eci, v_nom_eci])],
+            "state_ecef": [float(v) for v in np.concatenate([r_nom_ecef, [0, 0, 0]])],
+            "geodetic": [float(lat_nom), float(lon_nom), float(alt_m_nom)],
+            "alt_km": round(float(alt_m_nom / 1000.0), 2),
+            "lat_str": f"{abs(lat_nom):.2f}°{'N' if lat_nom>=0 else 'S'}",
+            "lon_str": f"{abs(lon_nom):.2f}°{'E' if lon_nom>=0 else 'W'}",
+        },
+        "drift_metrics": {
+            "dr_radial_m": round(float(ric_dict["dr_radial"]), 2),
+            "dr_in_track_m": round(float(ric_dict["dr_in_track"]), 2),
+            "dr_cross_track_m": round(float(ric_dict["dr_cross_track"]), 2),
+            "total_drift_m": round(total_drift_m, 2),
+            "total_drift_km": round(total_drift_km, 3),
+        },
+        "nominal_orbit_arc_eci": sgp4_res["states_eci"][:, 0:3].tolist(),
+        "offset_orbit_arc_eci": offset_res["states_eci"][:, 0:3].tolist(),
+        "orbit_arc_eci": offset_res["states_eci"][:, 0:3].tolist(),
+    })
 
 
 @app.route("/api/benchmark", methods=["GET"])

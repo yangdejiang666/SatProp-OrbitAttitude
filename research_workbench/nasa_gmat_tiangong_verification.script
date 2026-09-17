@@ -1,0 +1,80 @@
+%--------------------------------------------------------------------------
+% NASA Goddard Space Flight Center - General Mission Analysis Tool (GMAT)
+% Mission Verification Script for SatProp-OrbitAttitude
+% Generated for Spacecraft: TIANGONG
+%--------------------------------------------------------------------------
+
+%--------------------------------------------------------------------------
+% Spacecraft Configuration
+%--------------------------------------------------------------------------
+Create Spacecraft TIANGONG;
+GMAT TIANGONG.DateFormat = UTCGregorian;
+GMAT TIANGONG.Epoch = '15 Sep 2026 22:17:52.000';
+GMAT TIANGONG.CoordinateSystem = EarthMJ2000Eq;
+GMAT TIANGONG.DisplayStateType = Cartesian;
+GMAT TIANGONG.X = -4444.6292;
+GMAT TIANGONG.Y = 5100.1675;
+GMAT TIANGONG.Z = -0.0004;
+GMAT TIANGONG.VX = -4.33486;
+GMAT TIANGONG.VY = -3.78249;
+GMAT TIANGONG.VZ = 5.08777;
+GMAT TIANGONG.DryMass = 66000.0;
+GMAT TIANGONG.Cd = 2.2;
+GMAT TIANGONG.DragArea = 45.0;
+GMAT TIANGONG.Cr = 1.8;
+GMAT TIANGONG.SRPArea = 60.0;
+
+%--------------------------------------------------------------------------
+% Propagators & Force Models
+%--------------------------------------------------------------------------
+Create ForceModel HighFidelityForceModel;
+GMAT HighFidelityForceModel.CentralBody = Earth;
+GMAT HighFidelityForceModel.PrimaryBodies = {Earth};
+GMAT HighFidelityForceModel.PointMasses = {Luna, Sun};
+GMAT HighFidelityForceModel.SRP = On;
+GMAT HighFidelityForceModel.RelativisticCorrection = Off;
+GMAT HighFidelityForceModel.ErrorControl = RSSStep;
+
+GMAT HighFidelityForceModel.GravityField.Earth.Type = JGM2;
+GMAT HighFidelityForceModel.GravityField.Earth.Degree = 4;
+GMAT HighFidelityForceModel.GravityField.Earth.Order = 4;
+
+GMAT HighFidelityForceModel.Drag.AtmosphereModel = JacchiaRoberts;
+GMAT HighFidelityForceModel.Drag.HistoricWeatherSource = ConstantFluxAndGeoMag;
+
+Create Propagator PrinceDormand78;
+GMAT PrinceDormand78.FM = HighFidelityForceModel;
+GMAT PrinceDormand78.Type = PrinceDormand78;
+GMAT PrinceDormand78.InitialStepSize = 60.0;
+GMAT PrinceDormand78.Accuracy = 1e-11;
+GMAT PrinceDormand78.MinStep = 0.01;
+GMAT PrinceDormand78.MaxStep = 300;
+GMAT PrinceDormand78.MaxStepAttempts = 50;
+
+%--------------------------------------------------------------------------
+% Coordinate Systems & Views
+%--------------------------------------------------------------------------
+Create CoordinateSystem EarthFixed;
+GMAT EarthFixed.Origin = Earth;
+GMAT EarthFixed.Axes = BodyFixed;
+
+Create OrbitView Enhanced3DView;
+GMAT Enhanced3DView.SolverIterations = Current;
+GMAT Enhanced3DView.UpperLeft = [ 0.1 0.1 ];
+GMAT Enhanced3DView.Size = [ 0.8 0.8 ];
+GMAT Enhanced3DView.Add = { TIANGONG, Earth, Luna };
+GMAT Enhanced3DView.CoordinateSystem = EarthMJ2000Eq;
+GMAT Enhanced3DView.ViewPointRef = Earth;
+GMAT Enhanced3DView.ViewPointVector = [ 0 0 30000 ];
+GMAT Enhanced3DView.ViewDirection = Earth;
+
+Create ReportFile TrajectoryAuditReport;
+GMAT TrajectoryAuditReport.Filename = 'TIANGONG_GMAT_Audit.txt';
+GMAT TrajectoryAuditReport.Precision = 16;
+GMAT TrajectoryAuditReport.Add = { TIANGONG.A1ModJulian, TIANGONG.EarthMJ2000Eq.X, TIANGONG.EarthMJ2000Eq.Y, TIANGONG.EarthMJ2000Eq.Z, TIANGONG.EarthMJ2000Eq.VX, TIANGONG.EarthMJ2000Eq.VY, TIANGONG.EarthMJ2000Eq.VZ };
+
+%--------------------------------------------------------------------------
+% Mission Sequence
+%--------------------------------------------------------------------------
+BeginMissionSequence;
+Propagate PrinceDormand78(TIANGONG) { TIANGONG.ElapsedDays = 0.041666666666666664 };
